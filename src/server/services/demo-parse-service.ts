@@ -8,7 +8,7 @@ import type {
 } from "@/app/api/demos/demos.types";
 
 // utils
-import { getDemofilePackageVersion } from "../parser/demofile-meta";
+import { getDemoparser2PackageVersion } from "../parser/demoparser2-meta";
 import { parseDemoBuffer } from "../parser/parse-demo";
 import { resolveSampleDemPath } from "../shared/resolve-sample-dem";
 import { assertSafeDemFileName } from "../shared/safe-file-name";
@@ -17,8 +17,8 @@ const buildParserMeta = (
   parseDurationMs: number,
   protocol: number | null = null
 ): ParserMetaT => ({
-  parser: "demofile",
-  parserVersion: getDemofilePackageVersion(),
+  parser: "demoparser2",
+  parserVersion: getDemoparser2PackageVersion(),
   parseDurationMs,
   protocol,
 });
@@ -46,7 +46,9 @@ export const parseSelectedDemo = async (
       rounds: [],
       kills: [],
       parserMeta: buildParserMeta(Date.now() - outerStarted, null),
-      parserWarnings: [],
+      parserWarnings: [
+        "Parse aborted before reading demo file (invalid file name or path)",
+      ],
       parsedAt,
       errorMessage: message,
     };
@@ -71,7 +73,9 @@ export const parseSelectedDemo = async (
       rounds: [],
       kills: [],
       parserMeta: buildParserMeta(Date.now() - outerStarted, null),
-      parserWarnings: [],
+      parserWarnings: [
+        "Parse failed while reading demo bytes or running demoparser2 pipeline",
+      ],
       parsedAt,
       errorMessage: message,
     };

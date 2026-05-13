@@ -2,22 +2,23 @@ import "server-only";
 import { readFileSync } from "fs";
 import { join } from "path";
 
-let cachedDemofileVersion: string | null = null;
+let cachedVersion: string | null = null;
 
-export const getDemofilePackageVersion = (): string => {
-  if (cachedDemofileVersion !== null) return cachedDemofileVersion;
+export const getDemoparser2PackageVersion = (): string => {
+  if (cachedVersion !== null) return cachedVersion;
   try {
     const pkgPath = join(
       process.cwd(),
       "node_modules",
-      "demofile",
+      "@laihoe",
+      "demoparser2",
       "package.json"
     );
     const version = JSON.parse(readFileSync(pkgPath, "utf8"))?.version;
-    cachedDemofileVersion =
+    cachedVersion =
       typeof version === "string" && version.length > 0 ? version : "unknown";
   } catch {
-    cachedDemofileVersion = "unknown";
+    cachedVersion = "unknown";
   }
-  return cachedDemofileVersion;
+  return cachedVersion;
 };

@@ -113,7 +113,7 @@ const DemoDashboard: FC = () => {
           CS2 AI Demo Analyzer
         </h1>
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          Phase 1: local samples scanner and demofile-backed parse results.
+          Phase 1: local samples scanner and demoparser2-backed parse results.
         </p>
         <button
           type="button"
