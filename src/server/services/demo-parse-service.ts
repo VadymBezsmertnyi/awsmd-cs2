@@ -8,10 +8,17 @@ import type {
 } from "@/app/api/demos/demos.types";
 
 // utils
-import { getDemoparser2PackageVersion } from "../parser/demoparser2-meta";
 import { parseDemoBuffer } from "../parser/parse-demo";
+import { getDemoparser2PackageVersion } from "../parser/demoparser2-meta";
+import { attachParseSummary } from "../shared/parse-summary";
+import { writeParsedDemoJson } from "../shared/parsed-output-writer";
 import { resolveSampleDemPath } from "../shared/resolve-sample-dem";
 import { assertSafeDemFileName } from "../shared/safe-file-name";
+
+export type ParseSelectedDemoResultT = {
+  result: NormalizedParseResultT;
+  outputFileName: string | null;
+};
 
 const buildParserMeta = (
   parseDurationMs: number,
@@ -23,9 +30,32 @@ const buildParserMeta = (
   protocol,
 });
 
+const persistParsedJson = async (
+  safeName: string,
+  result: NormalizedParseResultT
+): Promise<{
+  result: NormalizedParseResultT;
+  outputFileName: string | null;
+}> => {
+  const written = await writeParsedDemoJson(safeName, result);
+  if (written.ok) {
+    return { result, outputFileName: written.fileName };
+  }
+  return {
+    result: attachParseSummary({
+      ...result,
+      parserWarnings: [
+        ...result.parserWarnings,
+        `Failed to write parsed output: ${written.message}`,
+      ],
+    }),
+    outputFileName: null,
+  };
+};
+
 export const parseSelectedDemo = async (
   fileName: string
-): Promise<NormalizedParseResultT> => {
+): Promise<ParseSelectedDemoResultT> => {
   const outerStarted = Date.now();
   const parsedAt = new Date().toISOString();
 
@@ -34,7 +64,7 @@ export const parseSelectedDemo = async (
     safeName = assertSafeDemFileName(fileName);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return {
+    const result = attachParseSummary({
       fileName: fileName.trim() || "unknown",
       fileSize: 0,
       status: "error",
@@ -51,17 +81,19 @@ export const parseSelectedDemo = async (
       ],
       parsedAt,
       errorMessage: message,
-    };
+    });
+    return { result, outputFileName: null };
   }
 
   try {
     const absolutePath = resolveSampleDemPath(safeName);
     const st = await fs.stat(absolutePath);
     const buffer = await fs.readFile(absolutePath);
-    return await parseDemoBuffer(buffer, safeName, st.size);
+    const parsed = await parseDemoBuffer(buffer, safeName, st.size);
+    return persistParsedJson(safeName, parsed);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return {
+    const result = attachParseSummary({
       fileName: safeName,
       fileSize: 0,
       status: "error",
@@ -78,6 +110,7 @@ export const parseSelectedDemo = async (
       ],
       parsedAt,
       errorMessage: message,
-    };
+    });
+    return persistParsedJson(safeName, result);
   }
 };

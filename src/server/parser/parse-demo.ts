@@ -5,6 +5,7 @@ import type { NormalizedParseResultT } from "@/app/api/demos/demos.types";
 
 import { parseBufferWithDemoparser2 } from "./adapters/demoparser2.adapter";
 import { getDemoparser2PackageVersion } from "./demoparser2-meta";
+import { attachParseSummary } from "../shared/parse-summary";
 
 export const parseDemoBuffer = async (
   buffer: Buffer,
@@ -25,7 +26,7 @@ export const parseDemoBuffer = async (
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     parserWarnings.push(`Unhandled demoparser2 pipeline error: ${message}`);
-    return {
+    return attachParseSummary({
       fileName,
       fileSize,
       status: "error",
@@ -45,7 +46,7 @@ export const parseDemoBuffer = async (
       parserWarnings,
       parsedAt,
       errorMessage: message,
-    };
+    });
   }
 };
 

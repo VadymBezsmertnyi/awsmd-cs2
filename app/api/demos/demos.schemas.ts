@@ -43,6 +43,14 @@ export const parserMetaSchema = z.object({
   protocol: z.number().nullable(),
 });
 
+export const parseSummarySchema = z.object({
+  playersCount: z.number().int().nonnegative(),
+  roundsCount: z.number().int().nonnegative(),
+  killsCount: z.number().int().nonnegative(),
+  warningsCount: z.number().int().nonnegative(),
+  isUsableForAnalysis: z.boolean(),
+});
+
 export const normalizedParseResultSchema = z.object({
   fileName: z.string(),
   fileSize: z.number(),
@@ -58,8 +66,26 @@ export const normalizedParseResultSchema = z.object({
   parserWarnings: z.array(z.string()),
   parsedAt: z.string(),
   errorMessage: z.string().optional(),
+  summary: parseSummarySchema,
 });
 
 export const parseDemoResponseSchema = z.object({
   result: normalizedParseResultSchema,
+});
+
+export const parseAllBatchItemSchema = z.object({
+  fileName: z.string(),
+  status: z.enum(["success", "error"]),
+  summary: parseSummarySchema,
+  parserWarnings: z.array(z.string()),
+  errorMessage: z.string().optional(),
+  outputFileName: z.string().nullable().optional(),
+});
+
+export const parseAllDemosResponseSchema = z.object({
+  parsedAt: z.string(),
+  total: z.number().int().nonnegative(),
+  successCount: z.number().int().nonnegative(),
+  errorCount: z.number().int().nonnegative(),
+  results: z.array(parseAllBatchItemSchema),
 });

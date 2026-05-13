@@ -15,6 +15,7 @@ import type {
 } from "@/app/api/demos/demos.types";
 
 // utils
+import { attachParseSummary } from "../../shared/parse-summary";
 import { getDemoparser2PackageVersion } from "../demoparser2-meta";
 
 type DemoparserEventRowT = Record<string, unknown>;
@@ -378,7 +379,7 @@ export const parseBufferWithDemoparser2 = (
     parserWarnings.push(
       `parseHeader failed: ${err instanceof Error ? err.message : String(err)}`
     );
-    return {
+    return attachParseSummary({
       fileName,
       fileSize,
       status: "error",
@@ -394,7 +395,7 @@ export const parseBufferWithDemoparser2 = (
       parsedAt,
       errorMessage:
         err instanceof Error ? err.message : "parseHeader failed for demo",
-    };
+    });
   }
 
   const mapNameRaw = header.map_name;
@@ -454,7 +455,7 @@ export const parseBufferWithDemoparser2 = (
 
   const parseDurationMs = Date.now() - started;
 
-  return {
+  return attachParseSummary({
     fileName,
     fileSize,
     status: "success",
@@ -468,5 +469,5 @@ export const parseBufferWithDemoparser2 = (
     parserMeta: buildParserMeta(parseDurationMs, protocol),
     parserWarnings,
     parsedAt,
-  };
+  });
 };
