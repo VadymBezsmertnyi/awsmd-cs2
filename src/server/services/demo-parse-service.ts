@@ -1,13 +1,17 @@
 import "server-only";
 import fs from "fs/promises";
-import { assertSafeDemFileName } from "../shared/safe-file-name";
-import { resolveSampleDemPath } from "../shared/resolve-sample-dem";
-import { parseDemoBuffer } from "../parser/parse-demo";
-import type { NormalizedParseResult } from "@/contracts/demos";
 
-export async function parseSelectedDemo(
+// types
+import type { NormalizedParseResultT } from "@/app/api/demos/demos.types";
+
+// utils
+import { parseDemoBuffer } from "../parser/parse-demo";
+import { resolveSampleDemPath } from "../shared/resolve-sample-dem";
+import { assertSafeDemFileName } from "../shared/safe-file-name";
+
+export const parseSelectedDemo = async (
   fileName: string
-): Promise<NormalizedParseResult> {
+): Promise<NormalizedParseResultT> => {
   const parsedAt = new Date().toISOString();
   let safeName: string;
   try {
@@ -54,4 +58,4 @@ export async function parseSelectedDemo(
       errorMessage: message,
     };
   }
-}
+};

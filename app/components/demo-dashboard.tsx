@@ -1,73 +1,41 @@
 "use client";
 
+import type { FC } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type {
-  DemoFileEntry,
-  DemosListResponse,
-  NormalizedParseResult,
-  ParseDemoResponse,
-} from "@/contracts/demos";
 
-type ListState =
+import type {
+  DemoFileT,
+  ListDemosResponseT,
+  NormalizedParseResultT,
+  ParseDemoResponseT,
+} from "@/app/api/demos/demos.types";
+
+type DemosListStateT =
   | { status: "loading" }
-  | { status: "ready"; demos: DemoFileEntry[] }
+  | { status: "ready"; demos: DemoFileT[] }
   | { status: "error"; message: string };
 
-export function DemoDashboard() {
-  const [listState, setListState] = useState<ListState>({ status: "loading" });
+type SummaryCardPropsI = {
+  label: string;
+  value: string;
+};
+
+const SummaryCard: FC<SummaryCardPropsI> = ({ label, value }) => (
+  <div className="rounded border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
+    <div className="text-xs uppercase tracking-wide text-zinc-500">{label}</div>
+    <div className="mt-1 break-all text-sm font-medium text-zinc-900 dark:text-zinc-50">
+      {value}
+    </div>
+  </div>
+);
+
+const DemoDashboard: FC = () => {
+  const [listState, setListState] = useState<DemosListStateT>({
+    status: "loading",
+  });
   const [parseLoading, setParseLoading] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
-  const [result, setResult] = useState<NormalizedParseResult | null>(null);
-
-  const loadDemos = useCallback(async (opts?: { skipLoading?: boolean }) => {
-    if (!opts?.skipLoading) {
-      setListState({ status: "loading" });
-      setParseError(null);
-    }
-    try {
-      const res = await fetch("/api/demos");
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || `HTTP ${res.status}`);
-      }
-      const json = (await res.json()) as DemosListResponse;
-      setListState({ status: "ready", demos: json.demos });
-    } catch (e) {
-      setListState({
-        status: "error",
-        message: e instanceof Error ? e.message : "Failed to load demos",
-      });
-    }
-  }, []);
-
-  useEffect(() => {
-    const handle = window.setTimeout(() => {
-      void loadDemos({ skipLoading: true });
-    }, 0);
-    return () => window.clearTimeout(handle);
-  }, [loadDemos]);
-
-  const parseDemo = useCallback(async (fileName: string) => {
-    setParseLoading(true);
-    setParseError(null);
-    setResult(null);
-    try {
-      const res = await fetch("/api/demos/parse", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileName }),
-      });
-      const json = (await res.json()) as ParseDemoResponse & { error?: string };
-      if (!res.ok) {
-        throw new Error(json.error ?? `HTTP ${res.status}`);
-      }
-      setResult(json.result);
-    } catch (e) {
-      setParseError(e instanceof Error ? e.message : "Parse request failed");
-    } finally {
-      setParseLoading(false);
-    }
-  }, []);
+  const [result, setResult] = useState<NormalizedParseResultT | null>(null);
 
   const summary = useMemo(() => {
     if (!result) return null;
@@ -85,6 +53,58 @@ export function DemoDashboard() {
       status: result.status,
     };
   }, [result]);
+
+  const loadDemos = useCallback(async (opts?: { skipLoading?: boolean }) => {
+    if (!opts?.skipLoading) {
+      setListState({ status: "loading" });
+      setParseError(null);
+    }
+    try {
+      const res = await fetch("/api/demos");
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || `HTTP ${res.status}`);
+      }
+      const json = (await res.json()) as ListDemosResponseT;
+      setListState({ status: "ready", demos: json.demos });
+    } catch (e) {
+      setListState({
+        status: "error",
+        message: e instanceof Error ? e.message : "Failed to load demos",
+      });
+    }
+  }, []);
+
+  const parseDemo = useCallback(async (fileName: string) => {
+    setParseLoading(true);
+    setParseError(null);
+    setResult(null);
+    try {
+      const res = await fetch("/api/demos/parse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileName }),
+      });
+      const json = (await res.json()) as ParseDemoResponseT & {
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(json.error ?? `HTTP ${res.status}`);
+      }
+      setResult(json.result);
+    } catch (e) {
+      setParseError(e instanceof Error ? e.message : "Parse request failed");
+    } finally {
+      setParseLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      loadDemos({ skipLoading: true });
+    }, 0);
+    return () => window.clearTimeout(handle);
+  }, [loadDemos]);
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-10">
@@ -193,17 +213,6 @@ export function DemoDashboard() {
       ) : null}
     </div>
   );
-}
+};
 
-function SummaryCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
-      <div className="text-xs uppercase tracking-wide text-zinc-500">
-        {label}
-      </div>
-      <div className="mt-1 break-all text-sm font-medium text-zinc-900 dark:text-zinc-50">
-        {value}
-      </div>
-    </div>
-  );
-}
+export default DemoDashboard;

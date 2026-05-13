@@ -2,16 +2,18 @@ import "server-only";
 import { DemoFile } from "demofile";
 import type { IEventPlayerDeath, IEventRoundStart } from "demofile";
 import fs from "fs/promises";
-import type { NormalizedParseResult } from "@/contracts/demos";
 
-function safeNum(n: number): number | null {
+// types
+import type { NormalizedParseResultT } from "@/app/api/demos/demos.types";
+
+const safeNum = (n: number): number | null => {
   if (typeof n !== "number" || Number.isNaN(n) || !Number.isFinite(n))
     return null;
 
   return n;
-}
+};
 
-function snapshotPlayers(demo: DemoFile): unknown[] {
+const snapshotPlayers = (demo: DemoFile): unknown[] => {
   const out: unknown[] = [];
   for (const p of demo.players) {
     try {
@@ -34,13 +36,13 @@ function snapshotPlayers(demo: DemoFile): unknown[] {
     }
   }
   return out;
-}
+};
 
-function waitForParse(
+const waitForParse = (
   demo: DemoFile,
   buffer: Buffer,
   parserWarnings: string[]
-): Promise<void> {
+): Promise<void> => {
   return new Promise((resolve, reject) => {
     let settled = false;
     const finish = (fn: () => void) => {
@@ -67,13 +69,13 @@ function waitForParse(
       finish(() => reject(err instanceof Error ? err : new Error(String(err))));
     }
   });
-}
+};
 
-export async function parseDemoBuffer(
+export const parseDemoBuffer = async (
   buffer: Buffer,
   fileName: string,
   fileSize: number
-): Promise<NormalizedParseResult> {
+): Promise<NormalizedParseResultT> => {
   const parserWarnings: string[] = [];
   const parsedAt = new Date().toISOString();
   const kills: unknown[] = [];
@@ -172,13 +174,13 @@ export async function parseDemoBuffer(
     parserWarnings,
     parsedAt,
   };
-}
+};
 
-export async function parseDemoFromPath(
+export const parseDemoFromPath = async (
   absolutePath: string,
   fileName: string
-): Promise<NormalizedParseResult> {
+): Promise<NormalizedParseResultT> => {
   const st = await fs.stat(absolutePath);
   const buffer = await fs.readFile(absolutePath);
   return parseDemoBuffer(buffer, fileName, st.size);
-}
+};

@@ -1,10 +1,12 @@
 import "server-only";
 import fs from "fs";
 import path from "path";
-import { getSamplesDir } from "./paths";
-import { assertSafeDemFileName } from "./safe-file-name";
 
-export function resolveSampleDemPath(fileName: string): string {
+// utils
+import { assertSafeDemFileName } from "./safe-file-name";
+import { getSamplesDir } from "./paths";
+
+export const resolveSampleDemPath = (fileName: string): string => {
   const safeName = assertSafeDemFileName(fileName);
   const root = getSamplesDir();
   const target = path.resolve(root, safeName);
@@ -14,4 +16,4 @@ export function resolveSampleDemPath(fileName: string): string {
     throw new Error("Demo file not found");
 
   return target;
-}
+};

@@ -1,25 +1,19 @@
 import { z } from "zod";
 
-export const demoFileEntrySchema = z.object({
+export const demoFileSchema = z.object({
   id: z.string(),
   fileName: z.string(),
   size: z.number().int().nonnegative(),
   modifiedAt: z.string(),
 });
 
-export type DemoFileEntry = z.infer<typeof demoFileEntrySchema>;
-
-export const demosListResponseSchema = z.object({
-  demos: z.array(demoFileEntrySchema),
+export const listDemosResponseSchema = z.object({
+  demos: z.array(demoFileSchema),
 });
-
-export type DemosListResponse = z.infer<typeof demosListResponseSchema>;
 
 export const parseDemoRequestSchema = z.object({
   fileName: z.string().min(1).max(512),
 });
-
-export type ParseDemoRequest = z.infer<typeof parseDemoRequestSchema>;
 
 export const normalizedParseResultSchema = z.object({
   fileName: z.string(),
@@ -37,10 +31,6 @@ export const normalizedParseResultSchema = z.object({
   errorMessage: z.string().optional(),
 });
 
-export type NormalizedParseResult = z.infer<typeof normalizedParseResultSchema>;
-
 export const parseDemoResponseSchema = z.object({
   result: normalizedParseResultSchema,
 });
-
-export type ParseDemoResponse = z.infer<typeof parseDemoResponseSchema>;

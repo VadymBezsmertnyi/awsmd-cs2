@@ -1,13 +1,17 @@
 import "server-only";
 import fs from "fs/promises";
 import path from "path";
-import { getSamplesDir } from "../shared/paths";
-import type { DemoFileEntry } from "@/contracts/demos";
 
-export async function scanSampleDemos(): Promise<DemoFileEntry[]> {
+// types
+import type { DemoFileT } from "@/app/api/demos/demos.types";
+
+// utils
+import { getSamplesDir } from "../shared/paths";
+
+export const scanSampleDemos = async (): Promise<DemoFileT[]> => {
   const root = getSamplesDir();
   const entries = await fs.readdir(root, { withFileTypes: true });
-  const demos: DemoFileEntry[] = [];
+  const demos: DemoFileT[] = [];
 
   for (const ent of entries) {
     if (!ent.isFile()) continue;
@@ -25,4 +29,4 @@ export async function scanSampleDemos(): Promise<DemoFileEntry[]> {
 
   demos.sort((a, b) => a.fileName.localeCompare(b.fileName));
   return demos;
-}
+};
