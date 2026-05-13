@@ -1,41 +1,162 @@
 import "server-only";
 import { DemoFile } from "demofile";
-import type { IEventPlayerDeath, IEventRoundStart } from "demofile";
+import type { IEventPlayerDeath, IEventRoundEnd } from "demofile";
 import fs from "fs/promises";
 
 // types
-import type { NormalizedParseResultT } from "@/app/api/demos/demos.types";
+import type {
+  NormalizedKillT,
+  NormalizedParseResultT,
+  NormalizedPlayerT,
+  NormalizedRoundT,
+  ParserMetaT,
+} from "@/app/api/demos/demos.types";
+
+// utils
+import { getDemofilePackageVersion } from "./demofile-meta";
+
+type MutableRoundT = {
+  roundNumber: number;
+  startTick: number | null;
+  endTick: number | null;
+  winner: string | null;
+};
 
 const safeNum = (n: number): number | null => {
-  if (typeof n !== "number" || Number.isNaN(n) || !Number.isFinite(n))
+  if (typeof n !== "number" || Number.isNaN(n) || !Number.isFinite(n)) {
     return null;
-
+  }
   return n;
 };
 
-const snapshotPlayers = (demo: DemoFile): unknown[] => {
-  const out: unknown[] = [];
+const teamFromTeamNumber = (teamNumber: number): string | null => {
+  try {
+    switch (teamNumber) {
+      case 0:
+        return "Unassigned";
+      case 1:
+        return "Spectator";
+      case 2:
+        return "T";
+      case 3:
+        return "CT";
+      default:
+        return `Team_${teamNumber}`;
+    }
+  } catch {
+    return null;
+  }
+};
+
+const formatRoundWinner = (e: IEventRoundEnd): string | null => {
+  try {
+    const msg = e.message != null ? String(e.message).trim() : "";
+    if (msg.length > 0) return msg;
+
+    return teamFromTeamNumber(e.winner);
+  } catch {
+    return null;
+  }
+};
+
+const extractHeaderProtocol = (
+  demo: DemoFile,
+  parserWarnings: string[]
+): number | null => {
+  try {
+    const raw = demo.header?.protocol;
+    if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+
+    parserWarnings.push("Demo header protocol unavailable or invalid");
+    return null;
+  } catch {
+    parserWarnings.push("Demo header protocol could not be read");
+    return null;
+  }
+};
+
+const buildParserMeta = (
+  parseDurationMs: number,
+  protocol: number | null
+): ParserMetaT => ({
+  parser: "demofile",
+  parserVersion: getDemofilePackageVersion(),
+  parseDurationMs,
+  protocol,
+});
+
+const findLastOpenRound = (rounds: MutableRoundT[]): MutableRoundT | null => {
+  for (let i = rounds.length - 1; i >= 0; i--) {
+    const r = rounds[i];
+    if (r && r.endTick === null) return r;
+  }
+  return null;
+};
+
+const dedupePlayers = (
+  players: NormalizedPlayerT[],
+  parserWarnings: string[]
+): NormalizedPlayerT[] => {
+  const map = new Map<string, NormalizedPlayerT>();
+  for (const pl of players) {
+    const key =
+      pl.steamId && pl.steamId.length > 0
+        ? `sid:${pl.steamId}`
+        : `name:${pl.name.toLowerCase().trim()}`;
+    const existing = map.get(key);
+    if (
+      existing &&
+      (existing.name !== pl.name ||
+        existing.team !== pl.team ||
+        existing.steamId !== pl.steamId)
+    ) {
+      parserWarnings.push(`Merged duplicate player slot: ${key}`);
+    }
+    map.set(key, pl);
+  }
+  return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+};
+
+const normalizePlayersFromDemo = (
+  demo: DemoFile,
+  parserWarnings: string[]
+): NormalizedPlayerT[] => {
+  const list: NormalizedPlayerT[] = [];
   for (const p of demo.players) {
     try {
-      out.push({
-        name: p.name,
-        steamId: p.steamId,
-        userId: p.userId,
-        teamNumber: p.teamNumber,
-        kills: p.kills,
-        deaths: p.deaths,
-        assists: p.assists,
-        score: p.score,
-        isFakePlayer: p.isFakePlayer,
-        isHltv: p.isHltv,
-      });
+      let steamId: string | null = null;
+      try {
+        const sid = p.steamId;
+        const s = sid != null ? String(sid).trim() : "";
+        steamId = s.length > 0 ? s : null;
+      } catch {
+        steamId = null;
+      }
+
+      let name = "unknown";
+      try {
+        const n = p.name != null ? String(p.name).trim() : "";
+        name = n.length > 0 ? n : "unknown";
+      } catch {
+        name = "unknown";
+      }
+
+      let team: string | null = null;
+      try {
+        team = teamFromTeamNumber(p.teamNumber);
+      } catch {
+        parserWarnings.push("Player team unavailable for one entity");
+        team = null;
+      }
+
+      list.push({ steamId, name, team });
     } catch (err) {
-      out.push({
-        snapshotError: err instanceof Error ? err.message : String(err),
-      });
+      parserWarnings.push(
+        `Player normalization skipped: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
   }
-  return out;
+  return dedupePlayers(list, parserWarnings);
 };
 
 const waitForParse = (
@@ -76,10 +197,11 @@ export const parseDemoBuffer = async (
   fileName: string,
   fileSize: number
 ): Promise<NormalizedParseResultT> => {
+  const startedMs = Date.now();
   const parserWarnings: string[] = [];
   const parsedAt = new Date().toISOString();
-  const kills: unknown[] = [];
-  const rounds: unknown[] = [];
+  const kills: NormalizedKillT[] = [];
+  const rounds: MutableRoundT[] = [];
 
   const demo = new DemoFile();
 
@@ -89,40 +211,73 @@ export const parseDemoBuffer = async (
 
   demo.gameEvents.on("player_death", (e: IEventPlayerDeath) => {
     try {
+      const weaponRaw = e.weapon;
+      const weapon =
+        weaponRaw == null ? null : String(weaponRaw).trim() || null;
       kills.push({
         tick: demo.currentTick,
-        weapon: e.weapon,
-        headshot: e.headshot,
-        victimUserId: e.userid,
+        killerName: e.attackerEntity?.name ?? null,
         victimName: e.player?.name ?? null,
-        attackerUserId: e.attacker,
-        attackerName: e.attackerEntity?.name ?? null,
-        assisterUserId: e.assister,
-        assisterName: e.assisterEntity?.name ?? null,
+        weapon,
+        headshot: Boolean(e.headshot),
       });
     } catch (err) {
       parserWarnings.push(
-        `player_death serialization: ${err instanceof Error ? err.message : String(err)}`
+        `player_death normalization: ${err instanceof Error ? err.message : String(err)}`
       );
     }
   });
 
-  demo.gameEvents.on("round_start", (e: IEventRoundStart) => {
+  demo.gameEvents.on("round_start", () => {
     try {
+      const tick = demo.currentTick;
+      const prev = rounds[rounds.length - 1];
+      if (prev && prev.endTick === null)
+        parserWarnings.push(
+          "round_start while previous round has no round_end; prior round left open"
+        );
+
       rounds.push({
-        tick: demo.currentTick,
-        timelimit: e.timelimit,
-        fraglimit: e.fraglimit,
-        objective: e.objective,
+        roundNumber: rounds.length + 1,
+        startTick: tick,
+        endTick: null,
+        winner: null,
       });
     } catch (err) {
       parserWarnings.push(
-        `round_start serialization: ${err instanceof Error ? err.message : String(err)}`
+        `round_start handling: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  });
+
+  demo.gameEvents.on("round_end", (e: IEventRoundEnd) => {
+    try {
+      const tick = demo.currentTick;
+      const winner = formatRoundWinner(e);
+      const open = findLastOpenRound(rounds);
+      if (open) {
+        open.endTick = tick;
+        open.winner = winner;
+      } else {
+        parserWarnings.push("round_end without matching open round");
+        rounds.push({
+          roundNumber: rounds.length + 1,
+          startTick: null,
+          endTick: tick,
+          winner,
+        });
+      }
+    } catch (err) {
+      parserWarnings.push(
+        `round_end handling: ${err instanceof Error ? err.message : String(err)}`
       );
     }
   });
 
   await waitForParse(demo, buffer, parserWarnings);
+
+  const parseDurationMs = Date.now() - startedMs;
+  const protocol = extractHeaderProtocol(demo, parserWarnings);
 
   const mapName: string | null | undefined = demo.header?.mapName ?? null;
   const tickInterval = demo.tickInterval;
@@ -151,13 +306,31 @@ export const parseDemoBuffer = async (
   if (durationSeconds === null)
     parserWarnings.push("Duration seconds could not be derived reliably");
 
-  let players: unknown[] = [];
+  let players: NormalizedPlayerT[] = [];
   try {
-    players = snapshotPlayers(demo);
+    players = normalizePlayersFromDemo(demo, parserWarnings);
   } catch (err) {
     parserWarnings.push(
-      `Player snapshot failed: ${err instanceof Error ? err.message : String(err)}`
+      `Player list normalization failed: ${err instanceof Error ? err.message : String(err)}`
     );
+  }
+
+  kills.sort((a, b) => a.tick - b.tick);
+
+  const normalizedRounds: NormalizedRoundT[] = [...rounds]
+    .sort((a, b) => a.roundNumber - b.roundNumber)
+    .map((r) => ({
+      roundNumber: r.roundNumber,
+      startTick: r.startTick,
+      endTick: r.endTick,
+      winner: r.winner,
+    }));
+
+  for (const r of normalizedRounds) {
+    if (r.endTick === null)
+      parserWarnings.push(
+        `Round ${r.roundNumber} has no round_end in demo; endTick left null`
+      );
   }
 
   return {
@@ -169,8 +342,9 @@ export const parseDemoBuffer = async (
     durationTicks,
     durationSeconds,
     players,
-    rounds,
+    rounds: normalizedRounds,
     kills,
+    parserMeta: buildParserMeta(parseDurationMs, protocol),
     parserWarnings,
     parsedAt,
   };

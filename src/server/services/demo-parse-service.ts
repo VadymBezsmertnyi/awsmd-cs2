@@ -2,17 +2,33 @@ import "server-only";
 import fs from "fs/promises";
 
 // types
-import type { NormalizedParseResultT } from "@/app/api/demos/demos.types";
+import type {
+  NormalizedParseResultT,
+  ParserMetaT,
+} from "@/app/api/demos/demos.types";
 
 // utils
+import { getDemofilePackageVersion } from "../parser/demofile-meta";
 import { parseDemoBuffer } from "../parser/parse-demo";
 import { resolveSampleDemPath } from "../shared/resolve-sample-dem";
 import { assertSafeDemFileName } from "../shared/safe-file-name";
 
+const buildParserMeta = (
+  parseDurationMs: number,
+  protocol: number | null = null
+): ParserMetaT => ({
+  parser: "demofile",
+  parserVersion: getDemofilePackageVersion(),
+  parseDurationMs,
+  protocol,
+});
+
 export const parseSelectedDemo = async (
   fileName: string
 ): Promise<NormalizedParseResultT> => {
+  const outerStarted = Date.now();
   const parsedAt = new Date().toISOString();
+
   let safeName: string;
   try {
     safeName = assertSafeDemFileName(fileName);
@@ -29,6 +45,7 @@ export const parseSelectedDemo = async (
       players: [],
       rounds: [],
       kills: [],
+      parserMeta: buildParserMeta(Date.now() - outerStarted, null),
       parserWarnings: [],
       parsedAt,
       errorMessage: message,
@@ -53,6 +70,7 @@ export const parseSelectedDemo = async (
       players: [],
       rounds: [],
       kills: [],
+      parserMeta: buildParserMeta(Date.now() - outerStarted, null),
       parserWarnings: [],
       parsedAt,
       errorMessage: message,
