@@ -10,171 +10,39 @@ import type {
 } from "@/app/api/demos/demos.types";
 import type { TacticalFindingT } from "../shared/tactical-finding.types";
 import type { FalseConfidenceDeathDetectorContextT } from "./false-confidence-death.types";
-
-// helpers
-import {
-  buildSortedRounds,
-  resolveRoundContainingTick,
-} from "@/src/server/shared/demo-timeline";
+import { createCandidateState, type CandidateStateT } from "./heuristics/types";
 
 // helpers
 import {
   buildRecommendation,
   buildRosterTeamByLowerName,
   defaultFalseConfidenceDeathTuning,
-  detectTradeResponse,
-  detectVictimTeamKillInWindow,
   namesMatch,
   normalizeConfidence,
+  normalizeDivisorForTier,
   resolveKillTimeSeconds,
   resolveSeverity,
-  secondsIntoRound,
   steamIdForPlayerName,
   tierConfidenceCap,
-  weaponRiskWeight,
-  windowTicks,
-  isEarlyRoundDeath,
 } from "./false-confidence-death.helpers";
+import { applyEngagementClusterHeuristic } from "./heuristics/clustering";
+import { applyDamageTimelineHeuristic } from "./heuristics/damage-timeline";
+import { applySpatialSupportHeuristic } from "./heuristics/support-spatial";
+import { applyEarlyRoundHeuristic } from "./heuristics/timing";
+import {
+  applyKillFeedIsolationHeuristic,
+  applyNoTradeHeuristic,
+} from "./heuristics/trade-feed";
+import { applyUtilityContextHeuristic } from "./heuristics/utility-context";
+import { applyHeadshotWeaponHeuristic } from "./heuristics/weapon";
+import {
+  buildSortedRounds,
+  resolveRoundContainingTick,
+} from "@/src/server/shared/demo-timeline";
+import { buildTelemetryIndexes } from "./telemetry-index";
 
 // constants
 import { FALSE_CONFIDENCE_DEATH_DETECTOR_VERSION } from "./false-confidence-death.schema";
-
-type HeuristicFlagsT = {
-  noTrade: boolean;
-  earlyRound: boolean;
-  isolated: boolean;
-  headshotRifle: boolean;
-};
-
-type CandidateT = {
-  kill: NormalizedKillT;
-  killIndex: number;
-  rawPoints: number;
-  evidence: string[];
-  flags: HeuristicFlagsT;
-};
-
-const hasFiniteTickRate = (
-  tickRate: number | null | undefined
-): tickRate is number =>
-  typeof tickRate === "number" && Number.isFinite(tickRate) && tickRate > 0;
-
-const tradeEvidenceLine = (
-  usedSeconds: boolean,
-  secondsOrTicks: number,
-  label: "trade" | "isolation"
-): string => {
-  if (usedSeconds) {
-    return label === "trade"
-      ? `No trade response detected in the kill feed within ${secondsOrTicks.toFixed(1)}s after death (not spatial coverage).`
-      : `No teammate kill appeared in the kill feed within ${secondsOrTicks.toFixed(1)}s after death (feed activity only).`;
-  }
-  return label === "trade"
-    ? `No trade response detected in the kill feed within ~${Math.round(secondsOrTicks)} ticks after death (tick rate unavailable for exact seconds).`
-    : `No teammate kill appeared in the kill feed within ~${Math.round(secondsOrTicks)} ticks after death (tick rate unavailable for exact seconds).`;
-};
-
-const applyNoTradeHeuristic = (
-  kills: NormalizedKillT[],
-  idx: number,
-  victimTeam: string | null,
-  attackerName: string | null,
-  roster: Map<string, string | null>,
-  tickRate: number | null | undefined,
-  tuning: typeof defaultFalseConfidenceDeathTuning,
-  out: CandidateT
-): void => {
-  if (victimTeam == null || attackerName == null) return;
-  const wTicks = windowTicks(
-    tickRate,
-    tuning.tradeWindowSeconds,
-    tuning.tradeWindowTicksFallback
-  );
-  const traded = detectTradeResponse(
-    kills,
-    idx,
-    victimTeam,
-    attackerName,
-    roster,
-    wTicks
-  );
-  if (traded) return;
-  out.rawPoints += tuning.weightNoTrade;
-  out.flags.noTrade = true;
-  const usedSeconds = hasFiniteTickRate(tickRate);
-  const secOrTicks = usedSeconds ? tuning.tradeWindowSeconds : wTicks;
-  out.evidence.push(tradeEvidenceLine(usedSeconds, secOrTicks, "trade"));
-};
-
-const applyEarlyRoundHeuristic = (
-  ctx: FalseConfidenceDeathDetectorContextT,
-  kill: NormalizedKillT,
-  sortedRounds: NormalizedRoundT[],
-  tickRate: number | null | undefined,
-  tuning: typeof defaultFalseConfidenceDeathTuning,
-  out: CandidateT
-): void => {
-  if (ctx.telemetryTier !== "limited" && ctx.telemetryTier !== "spatial")
-    return;
-  const round = resolveRoundContainingTick(kill.tick, sortedRounds);
-  const sec = round ? secondsIntoRound(kill.tick, round, tickRate) : null;
-  if (!isEarlyRoundDeath(sec, tuning.earlyRoundSeconds)) return;
-  out.rawPoints += tuning.weightEarlyRound;
-  out.flags.earlyRound = true;
-  out.evidence.push(
-    `Victim died ${sec != null ? `${sec.toFixed(1)}s` : "shortly"} after round start (timing from round_start tick and inferred tick rate).`
-  );
-};
-
-const applyHeadshotWeaponHeuristic = (
-  kill: NormalizedKillT,
-  tuning: typeof defaultFalseConfidenceDeathTuning,
-  out: CandidateT
-): void => {
-  const w = weaponRiskWeight(kill.weapon, kill.headshot, tuning);
-  if (w.points <= 0 || w.evidenceLine == null) return;
-  out.rawPoints += w.points;
-  out.flags.headshotRifle = true;
-  out.evidence.push(w.evidenceLine);
-};
-
-const applyIsolationHeuristic = (
-  kills: NormalizedKillT[],
-  idx: number,
-  victimTeam: string | null,
-  roster: Map<string, string | null>,
-  tickRate: number | null | undefined,
-  tuning: typeof defaultFalseConfidenceDeathTuning,
-  out: CandidateT
-): void => {
-  if (victimTeam == null) return;
-  const wTicks = windowTicks(
-    tickRate,
-    tuning.isolationWindowSeconds,
-    tuning.isolationTicksFallback
-  );
-  if (detectVictimTeamKillInWindow(kills, idx, victimTeam, roster, wTicks))
-    return;
-  out.rawPoints += tuning.weightIsolation;
-  out.flags.isolated = true;
-  const usedSeconds = hasFiniteTickRate(tickRate);
-  const secOrTicks = usedSeconds ? tuning.isolationWindowSeconds : wTicks;
-  out.evidence.push(tradeEvidenceLine(usedSeconds, secOrTicks, "isolation"));
-};
-
-const buildShortReason = (flags: HeuristicFlagsT): string => {
-  if (flags.noTrade && flags.earlyRound)
-    return "Death occurred early in the round with no kill-feed trade on the attacker within the scanned window.";
-  if (flags.noTrade)
-    return "Death showed no kill-feed trade on the attacker within the scanned window.";
-  if (flags.earlyRound)
-    return "Death occurred soon after round start by demo timing (not map-position verified).";
-  if (flags.isolated && flags.headshotRifle)
-    return "Fast headshot elimination with limited nearby teammate kill-feed activity.";
-  if (flags.headshotRifle)
-    return "Fast headshot elimination from the kill feed; contextual risk only.";
-  return "Elevated contextual risk from kill-feed timing and roster signals.";
-};
 
 const findingId = (
   fileName: string,
@@ -186,32 +54,53 @@ const findingId = (
     .digest("hex")
     .slice(0, 24);
 
-const buildCandidate = (
+const buildShortReason = (f: CandidateStateT["flags"]): string => {
+  if (f.spatialSupportGap && f.noTrade)
+    return "Approximate spatial isolation and kill-feed trade gap both elevated contextual risk.";
+  if (f.spatialSupportGap)
+    return "Victim appeared spatially isolated from teammates in sampled positional telemetry (approximate).";
+  if (f.noTrade && f.earlyRound)
+    return "Death occurred early in the round with no kill-feed trade on the attacker within the scanned window.";
+  if (f.noTrade)
+    return "Death showed no kill-feed trade on the attacker within the scanned window.";
+  if (f.earlyRound)
+    return "Death occurred soon after round start by demo timing (not map-position verified).";
+  if (f.isolated && f.headshotRifle)
+    return "Fast headshot elimination with limited nearby teammate kill-feed activity.";
+  if (f.headshotRifle)
+    return "Fast headshot elimination from the kill feed; contextual risk only.";
+  if (f.lowCombatCluster && f.shortDamageTimeline)
+    return "Limited nearby fight density with a short sampled damage window before elimination.";
+  return "Elevated contextual risk from sampled telemetry and kill-feed signals (heuristic).";
+};
+
+const sameTeamKill = (
+  kill: NormalizedKillT,
+  roster: Map<string, string | null>
+): boolean => {
+  if (kill.killerName == null || kill.victimName == null) return false;
+  const kt = roster.get(kill.killerName.trim().toLowerCase());
+  const vt = roster.get(kill.victimName.trim().toLowerCase());
+  if (kt == null || vt == null) return false;
+  return kt === vt;
+};
+
+const runHeuristicsForKill = (
   parseResult: NormalizedParseResultT,
   ctx: FalseConfidenceDeathDetectorContextT,
   kill: NormalizedKillT,
   killIndex: number,
   roster: Map<string, string | null>,
   sortedRounds: NormalizedRoundT[],
+  indexes: ReturnType<typeof buildTelemetryIndexes>,
   tuning: typeof defaultFalseConfidenceDeathTuning
-): CandidateT => {
-  const out: CandidateT = {
-    kill,
-    killIndex,
-    rawPoints: 0,
-    evidence: [],
-    flags: {
-      noTrade: false,
-      earlyRound: false,
-      isolated: false,
-      headshotRifle: false,
-    },
-  };
-
+): CandidateStateT => {
+  const out = createCandidateState(kill, killIndex);
   const victimTeam =
     kill.victimName != null
       ? (roster.get(kill.victimName.trim().toLowerCase()) ?? null)
       : null;
+  const victimName = kill.victimName?.trim() ?? "";
 
   applyNoTradeHeuristic(
     parseResult.kills,
@@ -232,12 +121,57 @@ const buildCandidate = (
     out
   );
   applyHeadshotWeaponHeuristic(kill, tuning, out);
-  applyIsolationHeuristic(
+  applyKillFeedIsolationHeuristic(
     parseResult.kills,
     killIndex,
     victimTeam,
     roster,
     parseResult.tickRate,
+    tuning,
+    out
+  );
+
+  applySpatialSupportHeuristic(
+    ctx,
+    victimName,
+    victimTeam,
+    kill.tick,
+    parseResult.players,
+    roster,
+    indexes,
+    tuning,
+    out
+  );
+
+  applyEngagementClusterHeuristic(
+    ctx,
+    kill.tick,
+    victimName,
+    victimTeam,
+    roster,
+    indexes,
+    parseResult.tickRate,
+    tuning,
+    out
+  );
+
+  applyUtilityContextHeuristic(
+    ctx,
+    kill.tick,
+    victimTeam,
+    roster,
+    parseResult.tickRate,
+    indexes,
+    tuning,
+    out
+  );
+
+  applyDamageTimelineHeuristic(
+    ctx,
+    kill.tick,
+    victimName,
+    parseResult.tickRate,
+    indexes,
     tuning,
     out
   );
@@ -248,28 +182,31 @@ const buildCandidate = (
 const candidateToFinding = (
   parseResult: NormalizedParseResultT,
   ctx: FalseConfidenceDeathDetectorContextT,
-  c: CandidateT,
+  c: CandidateStateT,
   sortedRounds: NormalizedRoundT[],
   tuning: typeof defaultFalseConfidenceDeathTuning,
   tierCap: number
 ): TacticalFindingT => {
   const { kill } = c;
   const victimName = kill.victimName?.trim() ?? "unknown";
-  const confidence = normalizeConfidence(
-    c.rawPoints,
-    tuning.rawPointsNormalizeDivisor,
-    tierCap
-  );
+  const divisor = normalizeDivisorForTier(ctx.telemetryTier, tuning);
+  const confidence = normalizeConfidence(c.rawPoints, divisor, tierCap);
   const severity = resolveSeverity(confidence);
   const round = resolveRoundContainingTick(kill.tick, sortedRounds);
   const timeSeconds = resolveKillTimeSeconds(kill.tick, parseResult.tickRate);
 
   const notes: string[] = [
-    "Limited telemetry prevents LOS, angles, or map-geometry verification.",
+    "Heuristic output is approximate; LOS, exact angles, and wallbang certainty are not inferred.",
   ];
   if (ctx.hasPlayerPositions)
     notes.push(
-      "Sampled world positions are present in the parse output; this detector version does not analyze distance or exposure from them."
+      "Positions are sparsely sampled; proximity is not visibility or trade guarantee."
+    );
+  if (ctx.hasDamageEvents)
+    notes.push("Damage events are incomplete relative to a full combat log.");
+  if (ctx.hasUtilityEvents)
+    notes.push(
+      "Utility rows reflect detonation timing only, not coverage quality."
     );
   if (parseResult.tickRate == null || !Number.isFinite(parseResult.tickRate))
     notes.push(
@@ -277,15 +214,12 @@ const candidateToFinding = (
     );
 
   const evidence = [...c.evidence];
-  const feedParts = ["kill feed", "roster"];
-  if (ctx.hasDamageEvents) feedParts.push("damage events present (unused)");
-  if (ctx.hasUtilityEvents)
-    feedParts.push("utility detonations present (unused)");
-  if (ctx.hasPlayerPositions)
-    feedParts.push("sampled positions present (unused)");
-  evidence.push(
-    `Telemetry tier ${ctx.telemetryTier}; inputs: ${feedParts.join(", ")}.`
-  );
+  const parts: string[] = [`Telemetry tier ${ctx.telemetryTier}`];
+  parts.push("kill feed", "roster");
+  if (ctx.hasPlayerPositions) parts.push("sampled positions");
+  if (ctx.hasDamageEvents) parts.push("hurt events");
+  if (ctx.hasUtilityEvents) parts.push("utility detonations");
+  evidence.push(`Inputs used: ${parts.join(", ")} (all approximate).`);
 
   return {
     id: findingId(parseResult.fileName, kill.tick, victimName),
@@ -312,17 +246,9 @@ const candidateToFinding = (
   };
 };
 
-const sameTeamKill = (
-  kill: NormalizedKillT,
-  roster: Map<string, string | null>
-): boolean => {
-  if (kill.killerName == null || kill.victimName == null) return false;
-  const kt = roster.get(kill.killerName.trim().toLowerCase());
-  const vt = roster.get(kill.victimName.trim().toLowerCase());
-  if (kt == null || vt == null) return false;
-  return kt === vt;
-};
-
+/**
+ * False Confidence Death — kill-feed + sampled spatial/damage/utility heuristics.
+ */
 export const runFalseConfidenceDeathDetector = (
   parseResult: NormalizedParseResultT,
   ctx: FalseConfidenceDeathDetectorContextT
@@ -334,8 +260,9 @@ export const runFalseConfidenceDeathDetector = (
   const roster = buildRosterTeamByLowerName(parseResult.players);
   const tierCap = tierConfidenceCap(ctx.telemetryTier);
   const sortedRounds = buildSortedRounds(parseResult.rounds);
+  const indexes = buildTelemetryIndexes(parseResult);
 
-  const candidates: CandidateT[] = [];
+  const candidates: CandidateStateT[] = [];
   const kills = parseResult.kills;
 
   for (let i = 0; i < kills.length; i += 1) {
@@ -345,13 +272,14 @@ export const runFalseConfidenceDeathDetector = (
     if (namesMatch(kill.killerName, kill.victimName)) continue;
     if (sameTeamKill(kill, roster)) continue;
 
-    const cand = buildCandidate(
+    const cand = runHeuristicsForKill(
       parseResult,
       ctx,
       kill,
       i,
       roster,
       sortedRounds,
+      indexes,
       tuning
     );
     if (cand.rawPoints < tuning.emitMinRawPoints) continue;

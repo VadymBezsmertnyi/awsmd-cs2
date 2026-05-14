@@ -10,12 +10,6 @@ import type {
 import type { FalseConfidenceDeathTuningT } from "./false-confidence-death.schema";
 import type { FindingSeverityT } from "../shared/tactical-finding.types";
 
-// helpers
-import {
-  buildSortedRounds,
-  resolveRoundContainingTick,
-} from "@/src/server/shared/demo-timeline";
-
 export const defaultFalseConfidenceDeathTuning: FalseConfidenceDeathTuningT =
   falseConfidenceDeathTuningSchema.parse({});
 
@@ -59,12 +53,6 @@ export const namesMatch = (a: string | null, b: string | null): boolean => {
   if (a == null || b == null) return false;
   return a.trim().toLowerCase() === b.trim().toLowerCase();
 };
-
-export const resolveRoundForTick = (
-  tick: number,
-  rounds: NormalizedRoundT[]
-): NormalizedRoundT | null =>
-  resolveRoundContainingTick(tick, buildSortedRounds(rounds));
 
 export const resolveKillTimeSeconds = (
   tick: number,
@@ -179,6 +167,16 @@ export const isEarlyRoundDeath = (
   secondsIntoRoundValue >= 0 &&
   secondsIntoRoundValue <= thresholdSec;
 
+export const normalizeDivisorForTier = (
+  tier: "kill_only" | "limited" | "spatial" | "full",
+  tuning: FalseConfidenceDeathTuningT
+): number => {
+  if (tier === "spatial" || tier === "full")
+    return tuning.rawPointsNormalizeDivisorSpatial;
+  if (tier === "limited") return tuning.rawPointsNormalizeDivisorLimited;
+  return tuning.rawPointsNormalizeDivisorKillOnly;
+};
+
 export const normalizeConfidence = (
   rawPoints: number,
   divisor: number,
@@ -201,8 +199,29 @@ export const buildRecommendation = (flags: {
   earlyRound: boolean;
   isolated: boolean;
   headshotRifle: boolean;
+  spatialSupportGap: boolean;
+  lowCombatCluster: boolean;
+  noAlliedUtilityWindow: boolean;
+  shortDamageTimeline: boolean;
+  busyCombatContext: boolean;
 }): string => {
   const parts: string[] = [];
+  if (flags.busyCombatContext)
+    parts.push(
+      "Context suggests busier local fighting; treat risk estimates conservatively and avoid over-interpreting isolation signals."
+    );
+  if (flags.spatialSupportGap)
+    parts.push(
+      "Prefer safer defaults when sampled teammate proximity looks weak; still not a substitute for comms or minimap awareness."
+    );
+  if (flags.noAlliedUtilityWindow)
+    parts.push(
+      "Consider defaulting utility for information and space before similar dry commits (utility timing is sampled only)."
+    );
+  if (flags.shortDamageTimeline)
+    parts.push(
+      "Treat very fast eliminations as high variance; gather more evidence before repeating similar timing duels."
+    );
   if (flags.noTrade)
     parts.push(
       "Consider delaying solo engagement until teammate support is available for immediate trade potential in the kill feed."
@@ -211,7 +230,7 @@ export const buildRecommendation = (flags: {
     parts.push(
       "Use additional information gathering before committing to early-round duels."
     );
-  if (flags.isolated && !flags.noTrade)
+  if (flags.isolated && !flags.noTrade && !flags.spatialSupportGap)
     parts.push(
       "Avoid isolated engagements without immediate refrag potential visible in the kill feed window."
     );
@@ -220,19 +239,16 @@ export const buildRecommendation = (flags: {
       "Treat fast eliminations as higher risk; confirm team coverage before taking similar duels."
     );
   if (parts.length === 0)
-    return "Review timing and team support using available demo signals; positional details are not available from telemetry.";
+    return "Review timing and team support using available demo signals; spatial conclusions remain approximate.";
   return parts.join(" ");
 };
 
 export const tierConfidenceCap = (
   telemetryTier: "kill_only" | "limited" | "spatial" | "full"
 ): number => {
-  if (
-    telemetryTier === "limited" ||
-    telemetryTier === "spatial" ||
-    telemetryTier === "full"
-  )
-    return 0.65;
+  if (telemetryTier === "spatial" || telemetryTier === "full") return 0.8;
+  if (telemetryTier === "limited") return 0.65;
+
   return 0.35;
 };
 

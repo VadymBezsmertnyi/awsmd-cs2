@@ -308,10 +308,38 @@ const DemoDashboard: FC = () => {
               </h3>
               <p className="text-sm text-zinc-600 dark:text-zinc-400">
                 Telemetry tier:{" "}
-                <span className="font-mono text-zinc-900 dark:text-zinc-100">
+                <span
+                  className={
+                    analysis.telemetrySummary.telemetryTier === "spatial"
+                      ? "font-mono font-semibold text-emerald-700 dark:text-emerald-400"
+                      : "font-mono text-zinc-900 dark:text-zinc-100"
+                  }
+                >
                   {analysis.telemetrySummary.telemetryTier}
                 </span>
               </p>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {analysis.telemetrySummary.telemetryTier === "spatial" ? (
+                  <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+                    spatial
+                  </span>
+                ) : null}
+                {analysis.telemetrySummary.hasPlayerPositions ? (
+                  <span className="rounded bg-zinc-200 px-2 py-0.5 text-xs text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">
+                    positions
+                  </span>
+                ) : null}
+                {analysis.telemetrySummary.hasDamageEvents ? (
+                  <span className="rounded bg-zinc-200 px-2 py-0.5 text-xs text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">
+                    damage-aware
+                  </span>
+                ) : null}
+                {analysis.telemetrySummary.hasUtilityEvents ? (
+                  <span className="rounded bg-zinc-200 px-2 py-0.5 text-xs text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">
+                    utility-aware
+                  </span>
+                ) : null}
+              </div>
               <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
                 Findings: {analysis.findings.length}
               </p>
