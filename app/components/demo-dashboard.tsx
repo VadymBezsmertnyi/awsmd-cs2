@@ -317,9 +317,52 @@ const DemoDashboard: FC = () => {
               </p>
               {analysis.findings.length === 0 ? (
                 <p className="mt-2 text-sm text-zinc-500">
-                  No tactical findings yet (detectors not emitting).
+                  No tactical findings matched the current thresholds.
                 </p>
-              ) : null}
+              ) : (
+                <ul className="mt-3 flex flex-col gap-3 text-sm">
+                  {analysis.findings.map((f) => (
+                    <li
+                      key={f.id}
+                      className="rounded border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900"
+                    >
+                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-zinc-800 dark:text-zinc-200">
+                        <span className="font-medium">{f.type}</span>
+                        <span className="text-zinc-500">
+                          severity {f.severity}
+                        </span>
+                        <span className="text-zinc-500">
+                          confidence {f.confidence.toFixed(2)}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-zinc-700 dark:text-zinc-300">
+                        <span className="font-medium">{f.playerName}</span>
+                        {" · "}
+                        round {f.roundNumber ?? "—"}
+                        {" · "}
+                        {f.timeSeconds != null
+                          ? `${f.timeSeconds.toFixed(1)}s`
+                          : "time —"}
+                        {" · tick "}
+                        {f.tick}
+                        {" · "}
+                        {f.weapon ?? "weapon —"}
+                      </p>
+                      <p className="mt-1 text-zinc-600 dark:text-zinc-400">
+                        {f.shortReason}
+                      </p>
+                      <ul className="mt-2 list-inside list-disc text-xs text-zinc-600 dark:text-zinc-400">
+                        {f.evidence.map((line, i) => (
+                          <li key={`${f.id}-e-${i}`}>{line}</li>
+                        ))}
+                      </ul>
+                      <p className="mt-2 text-xs text-zinc-700 dark:text-zinc-300">
+                        {f.recommendation}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           ) : null}
           <div>
