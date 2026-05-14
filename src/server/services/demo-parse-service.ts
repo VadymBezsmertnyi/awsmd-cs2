@@ -78,6 +78,7 @@ export const parseSelectedDemo = async (
       parserMeta: buildParserMeta(Date.now() - outerStarted, null),
       parserWarnings: [
         "Parse aborted before reading demo file (invalid file name or path)",
+        "Parsed output JSON not written (no safe .dem basename for outputs/)",
       ],
       parsedAt,
       errorMessage: message,
