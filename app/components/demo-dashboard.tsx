@@ -9,6 +9,7 @@ import type {
   DemoFileT,
   ListDemosResponseT,
   NormalizedParseResultT,
+  NormalizedRoundT,
   ParseAllDemosResponseT,
   ParseDemoResponseT,
   TacticalFindingT,
@@ -26,13 +27,80 @@ const VIDEO_CLIP_MIN_CONFIDENCE = 0.65;
 const VIDEO_CLIP_MIN_BAD_SCORE = 3;
 const VIDEO_CLIP_MAX = 5;
 
+const EMPTY_VALID_MOMENTS_UK =
+  "Валідних моментів для ручної перевірки не знайдено. Можливо, потрібні точніші telemetry-поля або м'якші пороги детектора.";
+
+const strNonEmpty = (s: string | null | undefined): s is string =>
+  typeof s === "string" && s.trim().length > 0;
+
+/** Mirrors server `resolveRoundContainingTick` (client-safe). */
+const resolveRoundNumberFromTicks = (
+  tick: number,
+  rounds: NormalizedRoundT[]
+): number | null => {
+  if (!Number.isFinite(tick) || rounds.length === 0) return null;
+  const sorted = [...rounds].sort((a, b) => a.roundNumber - b.roundNumber);
+  for (const r of sorted) {
+    if (r.startTick == null || !Number.isFinite(r.startTick)) continue;
+    if (tick < r.startTick) continue;
+    if (r.endTick != null && Number.isFinite(r.endTick) && tick > r.endTick)
+      continue;
+    return r.roundNumber;
+  }
+  return null;
+};
+
+const enrichFindingRoundNumber = (
+  f: TacticalFindingT,
+  rounds: NormalizedRoundT[]
+): TacticalFindingT => {
+  const rn = f.roundNumber;
+  if (typeof rn === "number" && Number.isFinite(rn) && rn > 0) return f;
+  const deathTick = f.clip?.deathTick ?? f.tick;
+  const resolved =
+    typeof deathTick === "number" && Number.isFinite(deathTick)
+      ? resolveRoundNumberFromTicks(deathTick, rounds)
+      : null;
+  if (resolved == null) return f;
+  return { ...f, roundNumber: resolved };
+};
+
+const isValidReviewFinding = (f: TacticalFindingT): boolean => {
+  if (f.type !== "FALSE_CONFIDENCE_DEATH") return false;
+  const r = f.roundNumber;
+  if (typeof r !== "number" || !Number.isFinite(r) || r <= 0) return false;
+  const c = f.clip;
+  if (c == null) return false;
+  if (
+    typeof c.deathTimeSeconds !== "number" ||
+    !Number.isFinite(c.deathTimeSeconds) ||
+    c.deathTimeSeconds <= 0
+  )
+    return false;
+  if (!strNonEmpty(c.deathTimeLabel)) return false;
+  if (c.deathTimeLabel.trim() === "0:00") return false;
+  if (!strNonEmpty(c.clipStartLabel)) return false;
+  if (!strNonEmpty(c.clipEndLabel)) return false;
+  return true;
+};
+
+const prepareReviewFindings = (
+  findings: TacticalFindingT[] | undefined,
+  rounds: NormalizedRoundT[]
+): TacticalFindingT[] => {
+  const list = findings ?? [];
+  const rs = rounds ?? [];
+  return list
+    .map((f) => enrichFindingRoundNumber(f, rs))
+    .filter(isValidReviewFinding);
+};
+
 const selectVideoReadyFindings = (
   findings: TacticalFindingT[]
 ): TacticalFindingT[] => {
   const list = findings.filter(
     (f) =>
-      f.type === "FALSE_CONFIDENCE_DEATH" &&
-      f.clip != null &&
+      isValidReviewFinding(f) &&
       f.quality != null &&
       f.quality.badDeathScore >= VIDEO_CLIP_MIN_BAD_SCORE &&
       f.confidence >= VIDEO_CLIP_MIN_CONFIDENCE
@@ -46,8 +114,6 @@ const selectVideoReadyFindings = (
   });
   return list.slice(0, VIDEO_CLIP_MAX);
 };
-
-const FINDING_TYPE_UK = "Смерть після необережного виходу";
 
 const TELEMETRY_DISCLAIMER_UK =
   "Оцінка базується на доступній demo-телеметрії та потребує ручної перевірки у відео.";
@@ -67,45 +133,20 @@ const mistakeTagShortUk = (t: MistakeTagUiT): string => {
   return m[t] ?? t;
 };
 
-const severityLabelUk = (s: TacticalFindingT["severity"]): string => {
-  switch (s) {
-    case "low":
-      return "низький";
-    case "medium":
-      return "середній";
-    case "high":
-      return "високий";
-    default:
-      return s;
-  }
-};
-
-const displayOrDash = (v: string | number | null | undefined): string => {
-  if (v == null) return "-";
-  if (typeof v === "number" && !Number.isFinite(v)) return "-";
-  if (typeof v === "string" && v.trim().length === 0) return "-";
-  return typeof v === "number" ? String(v) : v.trim();
-};
-
-const buildClipTimecodesCopyText = (
-  demoFile: string,
-  f: TacticalFindingT
-): string => {
-  const c = f.clip;
-  const demo = displayOrDash(demoFile.trim() || null);
-  const player = displayOrDash(f.playerName);
+const buildClipTimecodesCopyText = (f: TacticalFindingT): string => {
+  const c = f.clip!;
   const round =
-    f.roundNumber != null && Number.isFinite(f.roundNumber)
+    typeof f.roundNumber === "number" && f.roundNumber > 0
       ? String(f.roundNumber)
-      : "-";
-  const clip =
-    c != null &&
-    displayOrDash(c.clipStartLabel) !== "-" &&
-    displayOrDash(c.clipEndLabel) !== "-"
-      ? `${c.clipStartLabel}–${c.clipEndLabel}`
-      : "-";
-  const death = c != null ? displayOrDash(c.deathTimeLabel) : "-";
-  return `Demo: ${demo}\nPlayer: ${player}\nRound: ${round}\nClip: ${clip}\nDeath: ${death}\n`;
+      : "";
+  const reason = (f.shortReason ?? "").trim() || "—";
+  return [
+    `Гравець: ${f.playerName}`,
+    `Раунд: ${round}`,
+    `Період: ${c.clipStartLabel}–${c.clipEndLabel}`,
+    `Смерть: ${c.deathTimeLabel}`,
+    `Причина: ${reason}`,
+  ].join("\n");
 };
 
 const telemetryTierLabelUk = (
@@ -300,55 +341,37 @@ const tagBadgeClass = (tag: MistakeTagUiT, confidence: number): string => {
     : `${base} bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-200`;
 };
 
-type ClipExportRowT = {
+type ReviewMomentExportRowT = {
   demoFile: string;
   playerName: string;
-  roundNumber: number | null;
-  type: string;
+  roundNumber: number;
   clipStartLabel: string;
   deathTimeLabel: string;
   clipEndLabel: string;
-  clipStartSeconds: number;
-  deathTimeSeconds: number;
-  clipEndSeconds: number;
   confidence: number;
-  severity: string;
-  reason: string;
-  evidence: string[];
-  recommendation: string;
-  mistakeTags: string[];
-  verdict: string;
   badDeathScore: number;
-  positiveImpactScore: number;
+  reason: string;
+  mistakeTags: string[];
 };
 
-const buildClipsExport = (
+const buildReviewMomentsExport = (
   demoFile: string,
   findings: TacticalFindingT[]
-): ClipExportRowT[] =>
+): ReviewMomentExportRowT[] =>
   selectVideoReadyFindings(findings).map((f) => {
     const c = f.clip!;
     const q = f.quality!;
     return {
       demoFile,
       playerName: f.playerName,
-      roundNumber: f.roundNumber,
-      type: f.type,
+      roundNumber: f.roundNumber as number,
       clipStartLabel: c.clipStartLabel,
       deathTimeLabel: c.deathTimeLabel,
       clipEndLabel: c.clipEndLabel,
-      clipStartSeconds: c.clipStartSeconds,
-      deathTimeSeconds: c.deathTimeSeconds,
-      clipEndSeconds: c.clipEndSeconds,
       confidence: f.confidence,
-      severity: f.severity,
-      reason: f.shortReason,
-      evidence: f.evidence ?? [],
-      recommendation: f.recommendation,
-      mistakeTags: f.mistakeTags ?? [],
-      verdict: f.verdict ?? "",
       badDeathScore: q.badDeathScore,
-      positiveImpactScore: q.positiveImpactScore,
+      reason: f.shortReason,
+      mistakeTags: f.mistakeTags ?? [],
     };
   });
 
@@ -374,44 +397,33 @@ const buildMarkdownReportUk = (
     `- **Згенеровано:** ${analysis.generatedAt}`,
     `- **Рівень телеметрії:** ${telemetryTierLabelUk(analysis.telemetrySummary.telemetryTier)}`,
     ``,
-    `## Моменти для відео`,
+    `## Моменти для перевірки у demo`,
     ``,
   ];
   const clips = selectVideoReadyFindings(findings);
   if (clips.length === 0) {
-    lines.push(`_Немає моментів для експорту за поточними порогами._`, ``);
+    lines.push(`_${EMPTY_VALID_MOMENTS_UK}_`, ``);
     return lines.join("\n");
   }
   for (const f of clips) {
     const c = f.clip!;
     const q = f.quality!;
+    const rn = f.roundNumber as number;
     lines.push(
-      `### ${f.playerName} — раунд ${f.roundNumber ?? "—"}`,
+      `### ${f.playerName} — Раунд ${rn}`,
       ``,
-      `- **Оцінка поганої смерті:** ${q.badDeathScore}`,
-      `- **Корисний вплив до смерті:** ${q.positiveImpactScore}`,
-      `- **Період кліпу:** ${c.clipStartLabel}–${c.clipEndLabel}`,
-      `- **Смерть:** ${c.deathTimeLabel}`,
-      `- **Впевненість:** ${(f.confidence * 100).toFixed(0)}%`,
-      `- **Рівень:** ${severityLabelUk(f.severity)}`,
-      `- **Теги:** ${(f.mistakeTags ?? []).join(", ") || "—"}`,
-      `- **Що сталося:** ${f.shortReason}`,
-      `- **Висновок:** ${f.verdict ?? "—"}`,
-      `- **Порада:** ${f.recommendation}`,
-      ``,
-      `Коротко для монтажу:`,
-      ...(f.evidence ?? []).map((e) => `- ${e}`),
+      `- Період: ${c.clipStartLabel}–${c.clipEndLabel}`,
+      `- Смерть: ${c.deathTimeLabel}`,
+      `- Впевненість: ${(f.confidence * 100).toFixed(0)}%`,
+      `- Поганий бал: ${q.badDeathScore}`,
+      `- Причина: ${f.shortReason}`,
       ``,
       `---`,
       ``
     );
   }
   lines.push(
-    `## Як використовувати для відео`,
-    ``,
-    `Відкрийте demo у CS2, перейдіть до вказаного періоду, запишіть фрагмент через OBS або інший інструмент і вручну перевірте момент.`,
-    ``,
-    `_Усі висновки наближені за доступною телеметрією; потребують ручної перевірки у відео._`
+    `_Оцінки за demo-телеметрією; перевірте моменти вручну у CS2 demo._`
   );
   return lines.join("\n");
 };
@@ -451,17 +463,15 @@ const DemoDashboard: FC = () => {
     };
   }, [result]);
 
-  const videoFindings = useMemo(() => {
-    if (!analysis?.findings) return [];
-    return selectVideoReadyFindings(analysis.findings);
-  }, [analysis]);
-
   const tacticalFindings = useMemo(() => {
-    if (!analysis?.findings) return [];
-    return (analysis.findings ?? []).filter(
-      (f) => f.type === "FALSE_CONFIDENCE_DEATH"
-    );
-  }, [analysis]);
+    if (!analysis?.findings || !result || result.status !== "success")
+      return [];
+    return prepareReviewFindings(analysis.findings, result.rounds ?? []);
+  }, [analysis, result]);
+
+  const videoFindings = useMemo(() => {
+    return selectVideoReadyFindings(tacticalFindings);
+  }, [tacticalFindings]);
 
   const playerAggs = useMemo(
     () => aggregatePlayersFromFindings(tacticalFindings),
@@ -572,9 +582,13 @@ const DemoDashboard: FC = () => {
 
   const exportClipsJson = useCallback(() => {
     if (!result || !analysis || result.status !== "success") return;
-    const payload = buildClipsExport(result.fileName, analysis.findings ?? []);
+    const prepared = prepareReviewFindings(
+      analysis.findings ?? [],
+      result.rounds ?? []
+    );
+    const payload = buildReviewMomentsExport(result.fileName, prepared);
     triggerDownload(
-      "clips.json",
+      "review-moments.json",
       JSON.stringify(payload, null, 2),
       "application/json"
     );
@@ -582,41 +596,38 @@ const DemoDashboard: FC = () => {
 
   const exportMarkdown = useCallback(() => {
     if (!result || !analysis || result.status !== "success") return;
-    const md = buildMarkdownReportUk(
-      result.fileName,
-      analysis,
-      analysis.findings ?? []
+    const prepared = prepareReviewFindings(
+      analysis.findings ?? [],
+      result.rounds ?? []
     );
+    const md = buildMarkdownReportUk(result.fileName, analysis, prepared);
     const base = result.fileName.replace(/\.dem$/i, "") || "report";
     triggerDownload(
-      `${base}-clips-report.md`,
+      `${base}-demo-review.md`,
       md,
       "text/markdown;charset=utf-8"
     );
   }, [result, analysis]);
 
-  const copyClipTimecodes = useCallback(
-    async (demoFile: string, f: TacticalFindingT) => {
-      const text = buildClipTimecodesCopyText(demoFile, f);
+  const copyClipTimecodes = useCallback(async (f: TacticalFindingT) => {
+    const text = buildClipTimecodesCopyText(f);
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
       try {
-        await navigator.clipboard.writeText(text);
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
       } catch {
-        try {
-          const ta = document.createElement("textarea");
-          ta.value = text;
-          ta.style.position = "fixed";
-          ta.style.left = "-9999px";
-          document.body.appendChild(ta);
-          ta.select();
-          document.execCommand("copy");
-          document.body.removeChild(ta);
-        } catch {
-          /* ignore */
-        }
+        /* ignore */
       }
-    },
-    []
-  );
+    }
+  }, []);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -795,7 +806,7 @@ const DemoDashboard: FC = () => {
               <CompactStat
                 label="Ризикові смерті"
                 value={String(tacticalFindings.length)}
-                sub="після фільтра якості"
+                sub="валідний раунд і таймкоди"
               />
             ) : null}
             {analysis ? (
@@ -824,8 +835,14 @@ const DemoDashboard: FC = () => {
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
                   Тактична панель
                 </h3>
-                <span className="text-[10px] text-zinc-400">
-                  {(analysis.findings ?? []).length} знахідок
+                <span className="text-right text-[10px] leading-tight text-zinc-400">
+                  Валідних: {tacticalFindings.length}
+                  {(analysis.findings ?? []).length !==
+                  tacticalFindings.length ? (
+                    <span className="block text-zinc-500">
+                      Усього у відповіді: {(analysis.findings ?? []).length}
+                    </span>
+                  ) : null}
                 </span>
               </div>
               <p className="mt-1 text-[11px] leading-snug text-zinc-600 dark:text-zinc-400">
@@ -880,8 +897,8 @@ const DemoDashboard: FC = () => {
                 Гравці з найбільшою кількістю ризикових смертей
               </h4>
               {playerAggs.length === 0 ? (
-                <p className="mt-1 text-xs text-zinc-500">
-                  Немає знахідок за поточними порогами.
+                <p className="mt-1 text-[11px] leading-snug text-zinc-600 dark:text-zinc-400">
+                  {EMPTY_VALID_MOMENTS_UK}
                 </p>
               ) : (
                 <ul className="mt-1.5 flex flex-col gap-1.5">
@@ -947,7 +964,7 @@ const DemoDashboard: FC = () => {
                             ) : (
                               <ul className="flex flex-col gap-1">
                                 {visible.map((f) => {
-                                  const c = f.clip;
+                                  const c = f.clip!;
                                   const q = f.quality;
                                   return (
                                     <li
@@ -960,12 +977,20 @@ const DemoDashboard: FC = () => {
                                           ⚠ {findingTitleUk(f)}
                                         </span>
                                       </div>
-                                      <div className="mt-0.5 text-[10px] text-zinc-600 dark:text-zinc-400">
-                                        Раунд {f.roundNumber ?? "—"} ·{" "}
-                                        {c?.deathTimeLabel ?? "—"}
-                                        {" · "}
-                                        {(f.confidence * 100).toFixed(0)}% ·
-                                        поганий {q?.badDeathScore ?? "—"}
+                                      <div className="mt-0.5 space-y-0.5 text-[10px] text-zinc-600 dark:text-zinc-400">
+                                        <div>Раунд {f.roundNumber}</div>
+                                        <div>
+                                          Період: {c.clipStartLabel}–
+                                          {c.clipEndLabel}
+                                        </div>
+                                        <div>Смерть: {c.deathTimeLabel}</div>
+                                        <div>
+                                          Впевненість:{" "}
+                                          {(f.confidence * 100).toFixed(0)}%
+                                          {q != null
+                                            ? ` · Поганий бал: ${q.badDeathScore}`
+                                            : ""}
+                                        </div>
                                       </div>
                                       {(f.mistakeTags?.length ?? 0) > 0 ? (
                                         <div className="mt-1 flex flex-wrap gap-0.5">
@@ -984,7 +1009,10 @@ const DemoDashboard: FC = () => {
                                           ))}
                                         </div>
                                       ) : null}
-                                      <p className="mt-1 line-clamp-2 text-[10px] leading-snug text-zinc-600 dark:text-zinc-400">
+                                      <p className="mt-1 line-clamp-3 text-[10px] leading-snug text-zinc-600 dark:text-zinc-400">
+                                        <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                                          Причина:{" "}
+                                        </span>
                                         {f.shortReason}
                                       </p>
                                     </li>
@@ -1004,10 +1032,16 @@ const DemoDashboard: FC = () => {
               </p>
 
               <div className="mt-3 border-t border-zinc-100 pt-2 dark:border-zinc-800">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h4 className="text-[10px] font-semibold uppercase text-zinc-500">
-                    Відео (експорт)
-                  </h4>
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <div>
+                    <h4 className="text-[10px] font-semibold uppercase text-zinc-500">
+                      Моменти для перевірки у demo
+                    </h4>
+                    <p className="mt-0.5 max-w-xl text-[10px] leading-snug text-zinc-500 dark:text-zinc-400">
+                      Короткий список моментів, які варто відкрити у CS2 demo та
+                      перевірити вручну.
+                    </p>
+                  </div>
                   <div className="flex flex-wrap gap-1">
                     <button
                       type="button"
@@ -1017,7 +1051,7 @@ const DemoDashboard: FC = () => {
                       }
                       className="rounded border border-zinc-300 bg-white px-2 py-0.5 text-[10px] font-medium text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                     >
-                      clips.json
+                      Експортувати моменти JSON
                     </button>
                     <button
                       type="button"
@@ -1027,46 +1061,60 @@ const DemoDashboard: FC = () => {
                       }
                       className="rounded border border-zinc-300 bg-white px-2 py-0.5 text-[10px] font-medium text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                     >
-                      Markdown
+                      Експортувати звіт Markdown
                     </button>
                   </div>
                 </div>
-                <p className="mt-1 text-[10px] text-zinc-500">
-                  До {VIDEO_CLIP_MAX} кліпів, впевненість ≥
-                  {(VIDEO_CLIP_MIN_CONFIDENCE * 100).toFixed(0)}%, поганий бал ≥
-                  {VIDEO_CLIP_MIN_BAD_SCORE}.
+                <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+                  Показано до {VIDEO_CLIP_MAX} найімовірніших необережних
+                  смертей з валідним раундом і таймкодами.
                 </p>
-                {videoFindings.length === 0 ? (
-                  <p className="mt-1 text-[10px] text-zinc-500">
-                    Немає кліпів для експорту за цими порогами.
+                {tacticalFindings.length === 0 ? (
+                  <p className="mt-1 text-[10px] leading-snug text-zinc-600 dark:text-zinc-400">
+                    {EMPTY_VALID_MOMENTS_UK}
+                  </p>
+                ) : videoFindings.length === 0 ? (
+                  <p className="mt-1 text-[10px] leading-snug text-zinc-600 dark:text-zinc-400">
+                    Є валідні знахідки, але жодна не відповідає порогам відбору
+                    для цього списку (впевненість ≥
+                    {(VIDEO_CLIP_MIN_CONFIDENCE * 100).toFixed(0)}%, поганий бал
+                    ≥{VIDEO_CLIP_MIN_BAD_SCORE}, наявність оцінки якості).
                   </p>
                 ) : (
-                  <ul className="mt-1.5 flex flex-col gap-1">
+                  <ul className="mt-1.5 flex flex-col gap-1.5">
                     {videoFindings.map((f) => {
                       const c = f.clip!;
                       const q = f.quality!;
                       return (
                         <li
                           key={`clip-${f.id}`}
-                          className="flex flex-wrap items-center justify-between gap-1 rounded border border-zinc-100 px-2 py-1 text-[10px] dark:border-zinc-800"
+                          className="rounded border border-zinc-100 px-2 py-1.5 text-[10px] dark:border-zinc-800"
                         >
-                          <span className="font-medium text-zinc-800 dark:text-zinc-200">
-                            {f.playerName} · R{f.roundNumber ?? "—"} ·{" "}
-                            {c.deathTimeLabel}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              void copyClipTimecodes(result.fileName, f)
-                            }
-                            className="shrink-0 text-blue-600 underline dark:text-blue-400"
-                          >
-                            копіювати
-                          </button>
-                          <span className="w-full text-zinc-500">
-                            {(f.confidence * 100).toFixed(0)}% · поганий{" "}
-                            {q.badDeathScore}
-                          </span>
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1 space-y-0.5 text-zinc-800 dark:text-zinc-200">
+                              <div className="font-semibold">
+                                {f.playerName} · Раунд {f.roundNumber}
+                              </div>
+                              <div>
+                                Період: {c.clipStartLabel}–{c.clipEndLabel}
+                              </div>
+                              <div>Смерть: {c.deathTimeLabel}</div>
+                              <div>
+                                Впевненість: {(f.confidence * 100).toFixed(0)}%
+                                · Поганий бал: {q.badDeathScore}
+                              </div>
+                              <div className="text-zinc-600 dark:text-zinc-400">
+                                Причина: {f.shortReason}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => void copyClipTimecodes(f)}
+                              className="shrink-0 rounded border border-zinc-200 bg-white px-2 py-0.5 text-[10px] font-medium text-blue-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-blue-300 dark:hover:bg-zinc-800"
+                            >
+                              Копіювати таймкоди
+                            </button>
+                          </div>
                         </li>
                       );
                     })}
