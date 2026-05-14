@@ -33,7 +33,25 @@ const SummaryCard: FC<SummaryCardPropsI> = ({ label, value }) => (
   </div>
 );
 
-const FINDING_TYPE_UK = "Смерть після хибної впевненості";
+const FINDING_TYPE_UK = "Смерть після необережного виходу";
+
+const TELEMETRY_DISCLAIMER_UK =
+  "Оцінка базується на доступній demo-телеметрії та потребує ручної перевірки у відео.";
+
+type MistakeTagUiT = NonNullable<TacticalFindingT["mistakeTags"]>[number];
+
+const mistakeTagShortUk = (t: MistakeTagUiT): string => {
+  const m: Record<MistakeTagUiT, string> = {
+    NO_UTILITY_BEFORE_CONTACT: "без утиліти перед боєм",
+    FAST_ENTRY_BEFORE_DEATH: "дуже ранній вихід",
+    NO_TRADE_SUPPORT: "немає трейду",
+    ISOLATED_POSITION: "без прикриття союзником",
+    SHORT_TIME_TO_DEATH: "швидко після контакту",
+    POSSIBLE_NO_CLEAR: "імовірно не перевірили кут",
+    HEADSHOT_PUNISH: "хедшот-кара",
+  };
+  return m[t] ?? t;
+};
 
 const severityLabelUk = (s: TacticalFindingT["severity"]): string => {
   switch (s) {
@@ -115,6 +133,8 @@ type ClipExportRowT = {
   reason: string;
   evidence: string[];
   recommendation: string;
+  mistakeTags: string[];
+  verdict: string;
 };
 
 const buildClipsExport = (
@@ -141,6 +161,8 @@ const buildClipsExport = (
         reason: f.shortReason,
         evidence: f.evidence ?? [],
         recommendation: f.recommendation,
+        mistakeTags: f.mistakeTags ?? [],
+        verdict: f.verdict ?? "",
       };
     });
 
@@ -185,10 +207,12 @@ const buildMarkdownReportUk = (
       `- **Смерть:** ${c.deathTimeLabel}`,
       `- **Впевненість:** ${(f.confidence * 100).toFixed(0)}%`,
       `- **Рівень:** ${severityLabelUk(f.severity)}`,
-      `- **Причина:** ${f.shortReason}`,
-      `- **Рекомендація:** ${f.recommendation}`,
+      `- **Теги:** ${(f.mistakeTags ?? []).join(", ") || "—"}`,
+      `- **Що сталося:** ${f.shortReason}`,
+      `- **Висновок:** ${f.verdict ?? "—"}`,
+      `- **Порада:** ${f.recommendation}`,
       ``,
-      `**Докази:**`,
+      `Коротко для монтажу:`,
       ...(f.evidence ?? []).map((e) => `- ${e}`),
       ``,
       `---`,
@@ -619,27 +643,42 @@ const DemoDashboard: FC = () => {
                             Впевненість: {(f.confidence * 100).toFixed(0)}%
                           </span>
                         </div>
-                        <p className="mt-1 text-zinc-700 dark:text-zinc-300">
-                          <span className="font-medium">{f.playerName}</span>
+                        <p className="mt-2 text-zinc-700 dark:text-zinc-300">
+                          <span className="font-medium">Гравець:</span>{" "}
+                          {f.playerName}
                           {" · "}
-                          Раунд {f.roundNumber ?? "—"}
-                          {" · "}
-                          {f.timeSeconds != null
-                            ? `${f.timeSeconds.toFixed(1)} с`
-                            : "час —"}
-                          {" · тик "}
-                          {f.tick}
-                          {" · "}
-                          {f.weapon ?? "зброя —"}
+                          <span className="font-medium">Раунд:</span>{" "}
+                          {f.roundNumber ?? "—"}
                         </p>
-                        <p className="mt-1 text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                          Причина
+                        {f.clip ? (
+                          <p className="mt-1 text-zinc-600 dark:text-zinc-400">
+                            <span className="font-medium">Період:</span>{" "}
+                            {f.clip.clipStartLabel}–{f.clip.clipEndLabel}
+                            {" · "}
+                            <span className="font-medium">Смерть:</span>{" "}
+                            {f.clip.deathTimeLabel}
+                          </p>
+                        ) : null}
+                        {(f.mistakeTags?.length ?? 0) > 0 ? (
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {(f.mistakeTags ?? []).map((t) => (
+                              <span
+                                key={`${f.id}-${t}`}
+                                className="rounded-full border border-zinc-300 bg-white px-2 py-0.5 text-xs text-zinc-700 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-200"
+                              >
+                                {mistakeTagShortUk(t as MistakeTagUiT)}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                        <p className="mt-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                          Що сталося
                         </p>
-                        <p className="text-zinc-600 dark:text-zinc-400">
+                        <p className="text-sm text-zinc-700 dark:text-zinc-300">
                           {f.shortReason}
                         </p>
                         <p className="mt-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                          Докази
+                          Ознаки
                         </p>
                         <ul className="mt-1 list-inside list-disc text-xs text-zinc-600 dark:text-zinc-400">
                           {(f.evidence ?? []).map((line, i) => (
@@ -647,7 +686,13 @@ const DemoDashboard: FC = () => {
                           ))}
                         </ul>
                         <p className="mt-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                          Рекомендація
+                          Висновок
+                        </p>
+                        <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                          {f.verdict ?? "—"}
+                        </p>
+                        <p className="mt-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                          Порада
                         </p>
                         <p className="text-xs text-zinc-700 dark:text-zinc-300">
                           {f.recommendation}
@@ -656,6 +701,11 @@ const DemoDashboard: FC = () => {
                     ))}
                   </ul>
                 )}
+                {(analysis.findings ?? []).length > 0 ? (
+                  <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+                    {TELEMETRY_DISCLAIMER_UK}
+                  </p>
+                ) : null}
               </div>
 
               <div className="rounded border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
@@ -717,7 +767,7 @@ const DemoDashboard: FC = () => {
                               Скопіювати таймкоди
                             </button>
                           </div>
-                          <p className="mt-1 text-zinc-700 dark:text-zinc-300">
+                          <p className="mt-2 text-zinc-700 dark:text-zinc-300">
                             <span className="font-medium">Гравець:</span>{" "}
                             {f.playerName}
                             {" · "}
@@ -725,7 +775,7 @@ const DemoDashboard: FC = () => {
                             {f.roundNumber ?? "—"}
                           </p>
                           <p className="mt-1 text-zinc-600 dark:text-zinc-400">
-                            <span className="font-medium">Період моменту:</span>{" "}
+                            <span className="font-medium">Період:</span>{" "}
                             {c.clipStartLabel}–{c.clipEndLabel}
                             {" · "}
                             <span className="font-medium">Смерть:</span>{" "}
@@ -738,14 +788,26 @@ const DemoDashboard: FC = () => {
                             <span className="font-medium">Рівень:</span>{" "}
                             {severityLabelUk(f.severity)}
                           </p>
-                          <p className="mt-1 text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                            Причина
+                          {(f.mistakeTags?.length ?? 0) > 0 ? (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {(f.mistakeTags ?? []).map((t) => (
+                                <span
+                                  key={`${f.id}-v-${t}`}
+                                  className="rounded-full border border-zinc-300 bg-white px-2 py-0.5 text-xs text-zinc-700 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-200"
+                                >
+                                  {mistakeTagShortUk(t as MistakeTagUiT)}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
+                          <p className="mt-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                            Що сталося
                           </p>
                           <p className="text-xs text-zinc-700 dark:text-zinc-300">
                             {f.shortReason}
                           </p>
                           <p className="mt-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                            Докази
+                            Ознаки
                           </p>
                           <ul className="mt-1 list-inside list-disc text-xs text-zinc-600 dark:text-zinc-400">
                             {(f.evidence ?? []).map((line, i) => (
@@ -753,7 +815,13 @@ const DemoDashboard: FC = () => {
                             ))}
                           </ul>
                           <p className="mt-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                            Рекомендація
+                            Висновок
+                          </p>
+                          <p className="text-xs font-medium text-zinc-800 dark:text-zinc-200">
+                            {f.verdict ?? "—"}
+                          </p>
+                          <p className="mt-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                            Порада
                           </p>
                           <p className="text-xs text-zinc-700 dark:text-zinc-300">
                             {f.recommendation}
@@ -763,6 +831,11 @@ const DemoDashboard: FC = () => {
                     })}
                   </ul>
                 )}
+                {videoFindings.length > 0 ? (
+                  <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+                    {TELEMETRY_DISCLAIMER_UK}
+                  </p>
+                ) : null}
               </div>
             </>
           ) : null}

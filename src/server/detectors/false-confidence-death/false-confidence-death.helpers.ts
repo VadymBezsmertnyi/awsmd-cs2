@@ -194,55 +194,6 @@ export const resolveSeverity = (confidence: number): FindingSeverityT => {
   return "high";
 };
 
-export const buildRecommendation = (flags: {
-  noTrade: boolean;
-  earlyRound: boolean;
-  isolated: boolean;
-  headshotRifle: boolean;
-  spatialSupportGap: boolean;
-  lowCombatCluster: boolean;
-  noAlliedUtilityWindow: boolean;
-  shortDamageTimeline: boolean;
-  busyCombatContext: boolean;
-}): string => {
-  const parts: string[] = [];
-  if (flags.busyCombatContext)
-    parts.push(
-      "За доступною телеметрією навколо моменту ймовірно щільніший бій; оцінки ризику варто занижувати й не перебільшувати ізоляцію — потребує ручної перевірки у відео."
-    );
-  if (flags.spatialSupportGap)
-    parts.push(
-      "Ймовірно варто обирати безпечніші дефолти, коли союзники за вибірковими позиціями здаються далеко; це не замінює комунікацію чи мінімапу."
-    );
-  if (flags.noAlliedUtilityWindow)
-    parts.push(
-      "Розглянь утиліту для інфо та простору перед схожими «сухими» виходами (за детонаціями у demo, не за покриттям зони)."
-    );
-  if (flags.shortDamageTimeline)
-    parts.push(
-      "Дуже швидкі усунення високої варіативності; за евристикою варто зібрати більше доказів у відео перед повторенням схожих дуелей."
-    );
-  if (flags.noTrade)
-    parts.push(
-      "Ймовірно варто відкласти сольовий вихід, доки не видно підтримки для трейду в стрічці вбивств у розумному вікні."
-    );
-  if (flags.earlyRound)
-    parts.push(
-      "Додатковий збір інформації перед ранніми дуелями в раунді; таймінг з demo наближений."
-    );
-  if (flags.isolated && !flags.noTrade && !flags.spatialSupportGap)
-    parts.push(
-      "Уникай ізольованих виходів без видимого потенціалу рефрагу в kill feed за вибраним вікном."
-    );
-  if (flags.headshotRifle && parts.length === 0)
-    parts.push(
-      "Швидкі усунення сприймай як підвищений ризик; перевір покриття команди у відео перед схожими дуелями."
-    );
-  if (parts.length === 0)
-    return "Переглянь таймінг і підтримку команди за сигналами demo; просторові висновки наближені й потребують ручної перевірки у відео.";
-  return parts.join(" ");
-};
-
 export const tierConfidenceCap = (
   telemetryTier: "kill_only" | "limited" | "spatial" | "full"
 ): number => {

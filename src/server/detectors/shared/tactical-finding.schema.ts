@@ -33,6 +33,16 @@ export const tacticalFindingClipSchema = z.object({
   clipDurationSeconds: z.number(),
 });
 
+export const mistakeTagSchema = z.enum([
+  "NO_UTILITY_BEFORE_CONTACT",
+  "FAST_ENTRY_BEFORE_DEATH",
+  "NO_TRADE_SUPPORT",
+  "ISOLATED_POSITION",
+  "SHORT_TIME_TO_DEATH",
+  "POSSIBLE_NO_CLEAR",
+  "HEADSHOT_PUNISH",
+]);
+
 export const tacticalFindingSchema = z.object({
   id: z.string(),
   type: findingTypeSchema,
@@ -52,6 +62,8 @@ export const tacticalFindingSchema = z.object({
   mapName: z.string().optional(),
   context: tacticalFindingContextSchema.optional(),
   clip: tacticalFindingClipSchema.optional(),
+  mistakeTags: z.array(mistakeTagSchema).optional(),
+  verdict: z.string().optional(),
 });
 
 export const countsBySeveritySchema = z.object({
