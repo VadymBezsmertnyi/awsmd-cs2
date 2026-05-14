@@ -43,11 +43,37 @@ const severityLabelUk = (s: TacticalFindingT["severity"]): string => {
       return "середній";
     case "high":
       return "високий";
-    case "critical":
-      return "критичний";
     default:
       return s;
   }
+};
+
+const displayOrDash = (v: string | number | null | undefined): string => {
+  if (v == null) return "-";
+  if (typeof v === "number" && !Number.isFinite(v)) return "-";
+  if (typeof v === "string" && v.trim().length === 0) return "-";
+  return typeof v === "number" ? String(v) : v.trim();
+};
+
+const buildClipTimecodesCopyText = (
+  demoFile: string,
+  f: TacticalFindingT
+): string => {
+  const c = f.clip;
+  const demo = displayOrDash(demoFile.trim() || null);
+  const player = displayOrDash(f.playerName);
+  const round =
+    f.roundNumber != null && Number.isFinite(f.roundNumber)
+      ? String(f.roundNumber)
+      : "-";
+  const clip =
+    c != null &&
+    displayOrDash(c.clipStartLabel) !== "-" &&
+    displayOrDash(c.clipEndLabel) !== "-"
+      ? `${c.clipStartLabel}–${c.clipEndLabel}`
+      : "-";
+  const death = c != null ? displayOrDash(c.deathTimeLabel) : "-";
+  return `Demo: ${demo}\nPlayer: ${player}\nRound: ${round}\nClip: ${clip}\nDeath: ${death}\n`;
 };
 
 const telemetryTierLabelUk = (
@@ -170,6 +196,10 @@ const buildMarkdownReportUk = (
     );
   }
   lines.push(
+    `## Як використовувати для відео`,
+    ``,
+    `Відкрийте demo у CS2, перейдіть до вказаного періоду, запишіть фрагмент через OBS або інший інструмент і вручну перевірте момент.`,
+    ``,
     `_Усі висновки наближені за доступною телеметрією; потребують ручної перевірки у відео._`
   );
   return lines.join("\n");
@@ -311,6 +341,29 @@ const DemoDashboard: FC = () => {
       "text/markdown;charset=utf-8"
     );
   }, [result, analysis]);
+
+  const copyClipTimecodes = useCallback(
+    async (demoFile: string, f: TacticalFindingT) => {
+      const text = buildClipTimecodesCopyText(demoFile, f);
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        try {
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.style.position = "fixed";
+          ta.style.left = "-9999px";
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          document.body.removeChild(ta);
+        } catch {
+          /* ignore */
+        }
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -633,6 +686,10 @@ const DemoDashboard: FC = () => {
                     </button>
                   </div>
                 </div>
+                <p className="mb-3 text-sm text-zinc-600 dark:text-zinc-400">
+                  Таймкоди сформовані для подальшої ручної перевірки та нарізки
+                  відео у CS2/OBS.
+                </p>
                 {videoFindings.length === 0 ? (
                   <p className="text-sm text-zinc-500">
                     Немає кліпів для монтажу за поточним аналізом.
@@ -646,9 +703,20 @@ const DemoDashboard: FC = () => {
                           key={`clip-${f.id}`}
                           className="rounded border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900"
                         >
-                          <p className="font-medium text-zinc-900 dark:text-zinc-50">
-                            {result.fileName}
-                          </p>
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <p className="font-medium text-zinc-900 dark:text-zinc-50">
+                              {result.fileName}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void copyClipTimecodes(result.fileName, f)
+                              }
+                              className="shrink-0 rounded border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-800 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+                            >
+                              Скопіювати таймкоди
+                            </button>
+                          </div>
                           <p className="mt-1 text-zinc-700 dark:text-zinc-300">
                             <span className="font-medium">Гравець:</span>{" "}
                             {f.playerName}
@@ -666,7 +734,9 @@ const DemoDashboard: FC = () => {
                             <span className="font-medium">
                               Впевненість:
                             </span>{" "}
-                            {(f.confidence * 100).toFixed(0)}%
+                            {(f.confidence * 100).toFixed(0)}%{" · "}
+                            <span className="font-medium">Рівень:</span>{" "}
+                            {severityLabelUk(f.severity)}
                           </p>
                           <p className="mt-1 text-xs font-medium text-zinc-600 dark:text-zinc-400">
                             Причина
