@@ -3,7 +3,9 @@
 import type { FC } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+// types
 import type {
+  AnalysisReportT,
   DemoFileT,
   ListDemosResponseT,
   NormalizedParseResultT,
@@ -39,6 +41,7 @@ const DemoDashboard: FC = () => {
   const [parseError, setParseError] = useState<string | null>(null);
   const [batchError, setBatchError] = useState<string | null>(null);
   const [result, setResult] = useState<NormalizedParseResultT | null>(null);
+  const [analysis, setAnalysis] = useState<AnalysisReportT | null>(null);
   const [batchResult, setBatchResult] = useState<ParseAllDemosResponseT | null>(
     null
   );
@@ -87,6 +90,7 @@ const DemoDashboard: FC = () => {
     setParseLoading(true);
     setParseError(null);
     setResult(null);
+    setAnalysis(null);
     try {
       const res = await fetch("/api/demos/parse", {
         method: "POST",
@@ -100,6 +104,7 @@ const DemoDashboard: FC = () => {
         throw new Error(json.error ?? `HTTP ${res.status}`);
       }
       setResult(json.result);
+      setAnalysis(json.analysis ?? null);
     } catch (e) {
       setParseError(e instanceof Error ? e.message : "Parse request failed");
     } finally {
@@ -296,6 +301,27 @@ const DemoDashboard: FC = () => {
             <SummaryCard label="Status" value={summary.status} />
             <SummaryCard label="Usable for analysis" value={summary.usable} />
           </div>
+          {result?.status === "success" && analysis ? (
+            <div className="rounded border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
+              <h3 className="mb-2 text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                Analysis report
+              </h3>
+              <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                Telemetry tier:{" "}
+                <span className="font-mono text-zinc-900 dark:text-zinc-100">
+                  {analysis.telemetrySummary.telemetryTier}
+                </span>
+              </p>
+              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                Findings: {analysis.findings.length}
+              </p>
+              {analysis.findings.length === 0 ? (
+                <p className="mt-2 text-sm text-zinc-500">
+                  No tactical findings yet (detectors not emitting).
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           <div>
             <h3 className="mb-2 text-sm font-medium text-zinc-800 dark:text-zinc-200">
               Raw JSON

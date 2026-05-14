@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { analysisReportSchema } from "@/src/server/detectors/shared/tactical-finding.schema";
+
 export const demoFileSchema = z.object({
   id: z.string(),
   fileName: z.string(),
@@ -71,6 +73,7 @@ export const normalizedParseResultSchema = z.object({
 
 export const parseDemoResponseSchema = z.object({
   result: normalizedParseResultSchema,
+  analysis: analysisReportSchema.nullable(),
 });
 
 export const parseAllBatchItemSchema = z.object({

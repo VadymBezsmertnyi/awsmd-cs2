@@ -31,3 +31,5 @@ export type ParseAllBatchItemT = z.infer<typeof parseAllBatchItemSchema>;
 export type ParseAllDemosResponseT = z.infer<
   typeof parseAllDemosResponseSchema
 >;
+
+export type { AnalysisReportT } from "@/src/server/detectors/shared/tactical-finding.types";

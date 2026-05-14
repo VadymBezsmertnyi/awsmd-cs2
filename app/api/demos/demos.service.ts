@@ -1,15 +1,23 @@
+// schemas
 import {
   listDemosResponseSchema,
   parseAllDemosResponseSchema,
   parseDemoResponseSchema,
 } from "./demos.schemas";
+
+// types
 import type {
   ListDemosResponseT,
   ParseAllDemosResponseT,
   ParseDemoRequestT,
   ParseDemoResponseT,
 } from "./demos.types";
+
+// services
 import { parseSelectedDemo } from "@/src/server/services/demo-parse-service";
+
+// helpers
+import { buildAnalysisReport } from "@/src/server/analysis/analysis.service";
 import { scanSampleDemos } from "@/src/server/scanner/scan-samples";
 
 export const listDemos = async (): Promise<ListDemosResponseT> => {
@@ -21,7 +29,12 @@ export const postParseDemo = async (
   input: ParseDemoRequestT
 ): Promise<ParseDemoResponseT> => {
   const { result } = await parseSelectedDemo(input.fileName);
-  return parseDemoResponseSchema.parse({ result });
+  const generatedAt = new Date().toISOString();
+  const analysis =
+    result.status === "success"
+      ? buildAnalysisReport(result, generatedAt)
+      : null;
+  return parseDemoResponseSchema.parse({ result, analysis });
 };
 
 export const postParseAllDemos = async (): Promise<ParseAllDemosResponseT> => {
