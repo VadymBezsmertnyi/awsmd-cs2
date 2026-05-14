@@ -32,6 +32,6 @@ export const applyEarlyRoundHeuristic = (
   out.rawPoints += tuning.weightEarlyRound;
   out.flags.earlyRound = true;
   out.evidence.push(
-    `Victim died ${sec != null ? `${sec.toFixed(1)}s` : "shortly"} after round start (timing from round_start tick and inferred tick rate).`
+    `Жертва загинула ${sec != null ? `~${sec.toFixed(1)} с` : "незабаром"} після старту раунду (таймінг з round_start і tick rate у demo, наближено).`
   );
 };

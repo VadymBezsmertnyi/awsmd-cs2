@@ -57,13 +57,13 @@ export const applyUtilityContextHeuristic = (
   if (foundAllied) {
     applyRawDelta(out, tuning.alliedUtilityScoreDelta);
     out.evidence.push(
-      "Allied utility detonation(s) occurred shortly before elimination in the sampled window (timing only; not area coverage)."
+      "За вибірковим вікном перед усуненням були детонації союзної утиліти (лише час, не покриття зони)."
     );
   } else {
     out.rawPoints += tuning.weightNoAlliedUtility;
     out.flags.noAlliedUtilityWindow = true;
     out.evidence.push(
-      "No recent allied utility detonations detected before elimination in the sampled timing window (approximate)."
+      "Недавніх детонацій союзної утиліти перед смертю у вибірковому вікні не видно (наближено)."
     );
   }
 };

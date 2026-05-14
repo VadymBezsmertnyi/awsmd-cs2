@@ -154,7 +154,7 @@ export const weaponRiskWeight = (
   const label = weapon?.trim() || id;
   return {
     points: tuning.weightHeadshotRifle,
-    evidenceLine: `Headshot elimination with ${label} (kill feed only).`,
+    evidenceLine: `Ймовірно швидке усунення хедшотом з ${label} (лише kill feed; потребує ручної перевірки у відео).`,
   };
 };
 
@@ -208,38 +208,38 @@ export const buildRecommendation = (flags: {
   const parts: string[] = [];
   if (flags.busyCombatContext)
     parts.push(
-      "Context suggests busier local fighting; treat risk estimates conservatively and avoid over-interpreting isolation signals."
+      "За доступною телеметрією навколо моменту ймовірно щільніший бій; оцінки ризику варто занижувати й не перебільшувати ізоляцію — потребує ручної перевірки у відео."
     );
   if (flags.spatialSupportGap)
     parts.push(
-      "Prefer safer defaults when sampled teammate proximity looks weak; still not a substitute for comms or minimap awareness."
+      "Ймовірно варто обирати безпечніші дефолти, коли союзники за вибірковими позиціями здаються далеко; це не замінює комунікацію чи мінімапу."
     );
   if (flags.noAlliedUtilityWindow)
     parts.push(
-      "Consider defaulting utility for information and space before similar dry commits (utility timing is sampled only)."
+      "Розглянь утиліту для інфо та простору перед схожими «сухими» виходами (за детонаціями у demo, не за покриттям зони)."
     );
   if (flags.shortDamageTimeline)
     parts.push(
-      "Treat very fast eliminations as high variance; gather more evidence before repeating similar timing duels."
+      "Дуже швидкі усунення високої варіативності; за евристикою варто зібрати більше доказів у відео перед повторенням схожих дуелей."
     );
   if (flags.noTrade)
     parts.push(
-      "Consider delaying solo engagement until teammate support is available for immediate trade potential in the kill feed."
+      "Ймовірно варто відкласти сольовий вихід, доки не видно підтримки для трейду в стрічці вбивств у розумному вікні."
     );
   if (flags.earlyRound)
     parts.push(
-      "Use additional information gathering before committing to early-round duels."
+      "Додатковий збір інформації перед ранніми дуелями в раунді; таймінг з demo наближений."
     );
   if (flags.isolated && !flags.noTrade && !flags.spatialSupportGap)
     parts.push(
-      "Avoid isolated engagements without immediate refrag potential visible in the kill feed window."
+      "Уникай ізольованих виходів без видимого потенціалу рефрагу в kill feed за вибраним вікном."
     );
   if (flags.headshotRifle && parts.length === 0)
     parts.push(
-      "Treat fast eliminations as higher risk; confirm team coverage before taking similar duels."
+      "Швидкі усунення сприймай як підвищений ризик; перевір покриття команди у відео перед схожими дуелями."
     );
   if (parts.length === 0)
-    return "Review timing and team support using available demo signals; spatial conclusions remain approximate.";
+    return "Переглянь таймінг і підтримку команди за сигналами demo; просторові висновки наближені й потребують ручної перевірки у відео.";
   return parts.join(" ");
 };
 

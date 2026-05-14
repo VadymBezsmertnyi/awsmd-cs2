@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const FALSE_CONFIDENCE_DEATH_DETECTOR_VERSION = "0.2.0" as const;
+export const FALSE_CONFIDENCE_DEATH_DETECTOR_VERSION = "0.3.0" as const;
 
 export const falseConfidenceDeathTuningSchema = z.object({
   detectorVersion: z

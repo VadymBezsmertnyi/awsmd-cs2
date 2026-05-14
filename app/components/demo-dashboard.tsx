@@ -11,6 +11,7 @@ import type {
   NormalizedParseResultT,
   ParseAllDemosResponseT,
   ParseDemoResponseT,
+  TacticalFindingT,
 } from "@/app/api/demos/demos.types";
 
 type DemosListStateT =
@@ -31,6 +32,148 @@ const SummaryCard: FC<SummaryCardPropsI> = ({ label, value }) => (
     </div>
   </div>
 );
+
+const FINDING_TYPE_UK = "Смерть після хибної впевненості";
+
+const severityLabelUk = (s: TacticalFindingT["severity"]): string => {
+  switch (s) {
+    case "low":
+      return "низький";
+    case "medium":
+      return "середній";
+    case "high":
+      return "високий";
+    case "critical":
+      return "критичний";
+    default:
+      return s;
+  }
+};
+
+const telemetryTierLabelUk = (
+  t: AnalysisReportT["telemetrySummary"]["telemetryTier"]
+): string => {
+  switch (t) {
+    case "kill_only":
+      return "лише kill feed";
+    case "limited":
+      return "обмежений";
+    case "spatial":
+      return "просторовий";
+    case "full":
+      return "повний";
+    default:
+      return t;
+  }
+};
+
+const parseStatusUk = (status: string): string => {
+  if (status === "success") return "успіх";
+  if (status === "error") return "помилка";
+  return status;
+};
+
+type ClipExportRowT = {
+  demoFile: string;
+  playerName: string;
+  roundNumber: number | null;
+  type: string;
+  clipStartLabel: string;
+  deathTimeLabel: string;
+  clipEndLabel: string;
+  clipStartSeconds: number;
+  deathTimeSeconds: number;
+  clipEndSeconds: number;
+  confidence: number;
+  severity: string;
+  reason: string;
+  evidence: string[];
+  recommendation: string;
+};
+
+const buildClipsExport = (
+  demoFile: string,
+  findings: TacticalFindingT[]
+): ClipExportRowT[] =>
+  findings
+    .filter((f) => f.type === "FALSE_CONFIDENCE_DEATH" && f.clip != null)
+    .map((f) => {
+      const c = f.clip!;
+      return {
+        demoFile,
+        playerName: f.playerName,
+        roundNumber: f.roundNumber,
+        type: f.type,
+        clipStartLabel: c.clipStartLabel,
+        deathTimeLabel: c.deathTimeLabel,
+        clipEndLabel: c.clipEndLabel,
+        clipStartSeconds: c.clipStartSeconds,
+        deathTimeSeconds: c.deathTimeSeconds,
+        clipEndSeconds: c.clipEndSeconds,
+        confidence: f.confidence,
+        severity: f.severity,
+        reason: f.shortReason,
+        evidence: f.evidence ?? [],
+        recommendation: f.recommendation,
+      };
+    });
+
+const triggerDownload = (fileName: string, body: string, mime: string) => {
+  const blob = new Blob([body], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+const buildMarkdownReportUk = (
+  demoFile: string,
+  analysis: AnalysisReportT,
+  findings: TacticalFindingT[]
+): string => {
+  const lines: string[] = [
+    `# Звіт аналізу CS2 demo`,
+    ``,
+    `- **Файл:** ${demoFile}`,
+    `- **Згенеровано:** ${analysis.generatedAt}`,
+    `- **Рівень телеметрії:** ${telemetryTierLabelUk(analysis.telemetrySummary.telemetryTier)}`,
+    ``,
+    `## Моменти для відео`,
+    ``,
+  ];
+  const clips = findings.filter(
+    (f) => f.type === "FALSE_CONFIDENCE_DEATH" && f.clip != null
+  );
+  if (clips.length === 0) {
+    lines.push(`_Немає моментів для експорту за поточними порогами._`, ``);
+    return lines.join("\n");
+  }
+  for (const f of clips) {
+    const c = f.clip!;
+    lines.push(
+      `### ${f.playerName} — раунд ${f.roundNumber ?? "—"}`,
+      ``,
+      `- **Період кліпу:** ${c.clipStartLabel}–${c.clipEndLabel}`,
+      `- **Смерть:** ${c.deathTimeLabel}`,
+      `- **Впевненість:** ${(f.confidence * 100).toFixed(0)}%`,
+      `- **Рівень:** ${severityLabelUk(f.severity)}`,
+      `- **Причина:** ${f.shortReason}`,
+      `- **Рекомендація:** ${f.recommendation}`,
+      ``,
+      `**Докази:**`,
+      ...(f.evidence ?? []).map((e) => `- ${e}`),
+      ``,
+      `---`,
+      ``
+    );
+  }
+  lines.push(
+    `_Усі висновки наближені за доступною телеметрією; потребують ручної перевірки у відео._`
+  );
+  return lines.join("\n");
+};
 
 const DemoDashboard: FC = () => {
   const [listState, setListState] = useState<DemosListStateT>({
@@ -54,16 +197,23 @@ const DemoDashboard: FC = () => {
       map: result.mapName ?? "—",
       duration:
         result.durationSeconds != null
-          ? `${result.durationSeconds.toFixed(1)}s`
+          ? `${result.durationSeconds.toFixed(1)} с`
           : "—",
       players: s.playersCount,
       rounds: s.roundsCount,
       kills: s.killsCount,
       warnings: s.warningsCount,
       status: result.status,
-      usable: s.isUsableForAnalysis ? "yes" : "no",
+      usable: s.isUsableForAnalysis ? "так" : "ні",
     };
   }, [result]);
+
+  const videoFindings = useMemo(() => {
+    if (!analysis?.findings) return [];
+    return analysis.findings.filter(
+      (f) => f.type === "FALSE_CONFIDENCE_DEATH" && f.clip != null
+    );
+  }, [analysis]);
 
   const loadDemos = useCallback(async (opts?: { skipLoading?: boolean }) => {
     if (!opts?.skipLoading) {
@@ -81,7 +231,8 @@ const DemoDashboard: FC = () => {
     } catch (e) {
       setListState({
         status: "error",
-        message: e instanceof Error ? e.message : "Failed to load demos",
+        message:
+          e instanceof Error ? e.message : "Не вдалося завантажити список demo",
       });
     }
   }, []);
@@ -106,7 +257,9 @@ const DemoDashboard: FC = () => {
       setResult(json.result);
       setAnalysis(json.analysis ?? null);
     } catch (e) {
-      setParseError(e instanceof Error ? e.message : "Parse request failed");
+      setParseError(
+        e instanceof Error ? e.message : "Запит на аналіз demo не вдався"
+      );
     } finally {
       setParseLoading(false);
     }
@@ -127,12 +280,37 @@ const DemoDashboard: FC = () => {
       setBatchResult(json);
     } catch (e) {
       setBatchError(
-        e instanceof Error ? e.message : "Batch parse request failed"
+        e instanceof Error ? e.message : "Пакетний запит на аналіз не вдався"
       );
     } finally {
       setBatchLoading(false);
     }
   }, []);
+
+  const exportClipsJson = useCallback(() => {
+    if (!result || !analysis || result.status !== "success") return;
+    const payload = buildClipsExport(result.fileName, analysis.findings ?? []);
+    triggerDownload(
+      "clips.json",
+      JSON.stringify(payload, null, 2),
+      "application/json"
+    );
+  }, [result, analysis]);
+
+  const exportMarkdown = useCallback(() => {
+    if (!result || !analysis || result.status !== "success") return;
+    const md = buildMarkdownReportUk(
+      result.fileName,
+      analysis,
+      analysis.findings ?? []
+    );
+    const base = result.fileName.replace(/\.dem$/i, "") || "report";
+    triggerDownload(
+      `${base}-clips-report.md`,
+      md,
+      "text/markdown;charset=utf-8"
+    );
+  }, [result, analysis]);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -145,10 +323,11 @@ const DemoDashboard: FC = () => {
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-10">
       <header className="flex flex-col gap-2 border-b border-zinc-200 pb-6 dark:border-zinc-800">
         <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-          CS2 AI Demo Analyzer
+          Аналізатор CS2 demo
         </h1>
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          Phase 1: local samples scanner and demoparser2-backed parse results.
+          Локальні .dem з папки samples, парсинг через demoparser2, тактичні
+          евристики без LLM.
         </p>
         <div className="flex flex-wrap gap-2">
           <button
@@ -156,7 +335,7 @@ const DemoDashboard: FC = () => {
             onClick={() => void loadDemos()}
             className="self-start rounded border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
           >
-            Refresh list
+            Оновити список
           </button>
           <button
             type="button"
@@ -169,17 +348,17 @@ const DemoDashboard: FC = () => {
             }
             className="self-start rounded border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
           >
-            Parse all demos
+            Проаналізувати всі demo
           </button>
         </div>
       </header>
 
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-medium text-zinc-900 dark:text-zinc-100">
-          Samples (.dem)
+          Зразки (.dem)
         </h2>
         {listState.status === "loading" ? (
-          <p className="text-sm text-zinc-500">Scanning samples folder…</p>
+          <p className="text-sm text-zinc-500">Сканування папки samples…</p>
         ) : null}
         {listState.status === "error" ? (
           <p className="text-sm text-red-600 dark:text-red-400">
@@ -188,8 +367,8 @@ const DemoDashboard: FC = () => {
         ) : null}
         {listState.status === "ready" && listState.demos.length === 0 ? (
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            No .dem files in <code className="font-mono">/samples</code>. Add
-            demos and refresh.
+            Немає .dem у <code className="font-mono">/samples</code>. Додай
+            файли й натисни «Оновити список».
           </p>
         ) : null}
         {listState.status === "ready" && listState.demos.length > 0 ? (
@@ -206,11 +385,11 @@ const DemoDashboard: FC = () => {
                     {d.fileName}
                   </span>
                   <span className="text-xs text-zinc-500">
-                    {(d.size / (1024 * 1024)).toFixed(2)} MB ·{" "}
-                    {new Date(d.modifiedAt).toLocaleString()}
+                    {(d.size / (1024 * 1024)).toFixed(2)} МБ ·{" "}
+                    {new Date(d.modifiedAt).toLocaleString("uk-UA")}
                   </span>
                   <span className="text-xs font-medium text-blue-700 dark:text-blue-400">
-                    Parse
+                    Проаналізувати demo
                   </span>
                 </button>
               </li>
@@ -221,17 +400,17 @@ const DemoDashboard: FC = () => {
 
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-medium text-zinc-900 dark:text-zinc-100">
-          Parse
+          Аналіз
         </h2>
         {parseLoading ? (
-          <p className="text-sm text-zinc-500">Parsing selected demo…</p>
+          <p className="text-sm text-zinc-500">Аналіз обраного demo…</p>
         ) : null}
         {parseError ? (
           <p className="text-sm text-red-600 dark:text-red-400">{parseError}</p>
         ) : null}
         {batchLoading ? (
           <p className="text-sm text-zinc-500">
-            Parsing all demos (sequential)…
+            Аналіз усіх demo (послідовно)…
           </p>
         ) : null}
         {batchError ? (
@@ -242,12 +421,12 @@ const DemoDashboard: FC = () => {
       {batchResult ? (
         <section className="flex flex-col gap-3">
           <h2 className="text-lg font-medium text-zinc-900 dark:text-zinc-100">
-            Batch parse
+            Пакетний аналіз
           </h2>
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            Finished at {new Date(batchResult.parsedAt).toLocaleString()} ·
-            total {batchResult.total} · success {batchResult.successCount} ·
-            errors {batchResult.errorCount}
+            Завершено: {new Date(batchResult.parsedAt).toLocaleString("uk-UA")}{" "}
+            · усього {batchResult.total} · успіхів {batchResult.successCount} ·
+            помилок {batchResult.errorCount}
           </p>
           <ul className="flex flex-col gap-2 text-sm">
             {batchResult.results.map((r) => (
@@ -258,16 +437,19 @@ const DemoDashboard: FC = () => {
                 <span className="font-medium text-zinc-900 dark:text-zinc-50">
                   {r.fileName}
                 </span>{" "}
-                <span className="text-zinc-500">— {r.status}</span>
+                <span className="text-zinc-500">
+                  — {parseStatusUk(r.status)}
+                </span>
                 {r.outputFileName ? (
                   <span className="ml-2 text-xs text-zinc-500">
                     → outputs/{r.outputFileName}
                   </span>
                 ) : null}
                 <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
-                  P{r.summary.playersCount} · R{r.summary.roundsCount} · K
-                  {r.summary.killsCount} · W{r.summary.warningsCount} · analysis
-                  {r.summary.isUsableForAnalysis ? " ok" : " no"}
+                  Гравці {r.summary.playersCount} · Раунди{" "}
+                  {r.summary.roundsCount} · Вбивства {r.summary.killsCount} ·
+                  Попередження {r.summary.warningsCount} · аналіз{" "}
+                  {r.summary.isUsableForAnalysis ? "доступний" : "неможливий"}
                 </div>
                 {r.errorMessage ? (
                   <p className="mt-1 text-xs text-red-600 dark:text-red-400">
@@ -283,7 +465,7 @@ const DemoDashboard: FC = () => {
       {summary ? (
         <section className="flex flex-col gap-4">
           <h2 className="text-lg font-medium text-zinc-900 dark:text-zinc-100">
-            Summary
+            Підсумок
           </h2>
           {result?.status === "error" && result.errorMessage ? (
             <p className="text-sm text-red-600 dark:text-red-400">
@@ -291,119 +473,232 @@ const DemoDashboard: FC = () => {
             </p>
           ) : null}
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <SummaryCard label="File" value={summary.fileName} />
-            <SummaryCard label="Map" value={String(summary.map)} />
-            <SummaryCard label="Duration" value={summary.duration} />
-            <SummaryCard label="Players" value={String(summary.players)} />
-            <SummaryCard label="Rounds" value={String(summary.rounds)} />
-            <SummaryCard label="Kills" value={String(summary.kills)} />
-            <SummaryCard label="Warnings" value={String(summary.warnings)} />
-            <SummaryCard label="Status" value={summary.status} />
-            <SummaryCard label="Usable for analysis" value={summary.usable} />
+            <SummaryCard label="Файл" value={summary.fileName} />
+            <SummaryCard label="Мапа" value={String(summary.map)} />
+            <SummaryCard label="Тривалість" value={summary.duration} />
+            <SummaryCard label="Гравці" value={String(summary.players)} />
+            <SummaryCard label="Раунди" value={String(summary.rounds)} />
+            <SummaryCard label="Вбивства" value={String(summary.kills)} />
+            <SummaryCard
+              label="Попередження"
+              value={String(summary.warnings)}
+            />
+            <SummaryCard label="Статус" value={parseStatusUk(summary.status)} />
+            <SummaryCard label="Придатний для аналізу" value={summary.usable} />
           </div>
           {result?.status === "success" && analysis ? (
-            <div className="rounded border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-              <h3 className="mb-2 text-sm font-medium text-zinc-800 dark:text-zinc-200">
-                Analysis report
-              </h3>
-              <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                Telemetry tier:{" "}
-                <span
-                  className={
-                    analysis.telemetrySummary.telemetryTier === "spatial"
-                      ? "font-mono font-semibold text-emerald-700 dark:text-emerald-400"
-                      : "font-mono text-zinc-900 dark:text-zinc-100"
-                  }
-                >
-                  {analysis.telemetrySummary.telemetryTier}
-                </span>
-              </p>
-              <div className="mt-1 flex flex-wrap gap-1.5">
-                {analysis.telemetrySummary.telemetryTier === "spatial" ? (
-                  <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
-                    spatial
+            <>
+              <div className="rounded border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
+                <h3 className="mb-2 text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                  Звіт аналізу
+                </h3>
+                <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                  Рівень телеметрії:{" "}
+                  <span
+                    className={
+                      analysis.telemetrySummary.telemetryTier === "spatial"
+                        ? "font-mono font-semibold text-emerald-700 dark:text-emerald-400"
+                        : "font-mono text-zinc-900 dark:text-zinc-100"
+                    }
+                  >
+                    {telemetryTierLabelUk(
+                      analysis.telemetrySummary.telemetryTier
+                    )}
                   </span>
-                ) : null}
-                {analysis.telemetrySummary.hasPlayerPositions ? (
-                  <span className="rounded bg-zinc-200 px-2 py-0.5 text-xs text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">
-                    positions
-                  </span>
-                ) : null}
-                {analysis.telemetrySummary.hasDamageEvents ? (
-                  <span className="rounded bg-zinc-200 px-2 py-0.5 text-xs text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">
-                    damage-aware
-                  </span>
-                ) : null}
-                {analysis.telemetrySummary.hasUtilityEvents ? (
-                  <span className="rounded bg-zinc-200 px-2 py-0.5 text-xs text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">
-                    utility-aware
-                  </span>
-                ) : null}
-              </div>
-              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                Findings: {(analysis.findings ?? []).length}
-              </p>
-              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                Positions:{" "}
-                {analysis.telemetrySummary.hasPlayerPositions ? "yes" : "no"} ·
-                Damage events:{" "}
-                {analysis.telemetrySummary.hasDamageEvents ? "yes" : "no"} ·
-                Utility events:{" "}
-                {analysis.telemetrySummary.hasUtilityEvents ? "yes" : "no"}
-              </p>
-              {(analysis.findings ?? []).length === 0 ? (
-                <p className="mt-2 text-sm text-zinc-500">
-                  No tactical findings matched the current thresholds.
                 </p>
-              ) : (
-                <ul className="mt-3 flex flex-col gap-3 text-sm">
-                  {(analysis.findings ?? []).map((f) => (
-                    <li
-                      key={f.id}
-                      className="rounded border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900"
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {analysis.telemetrySummary.telemetryTier === "spatial" ? (
+                    <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+                      просторовий
+                    </span>
+                  ) : null}
+                  {analysis.telemetrySummary.hasPlayerPositions ? (
+                    <span className="rounded bg-zinc-200 px-2 py-0.5 text-xs text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">
+                      позиції
+                    </span>
+                  ) : null}
+                  {analysis.telemetrySummary.hasDamageEvents ? (
+                    <span className="rounded bg-zinc-200 px-2 py-0.5 text-xs text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">
+                      шкода
+                    </span>
+                  ) : null}
+                  {analysis.telemetrySummary.hasUtilityEvents ? (
+                    <span className="rounded bg-zinc-200 px-2 py-0.5 text-xs text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">
+                      утиліта
+                    </span>
+                  ) : null}
+                </div>
+                <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                  Знахідок: {(analysis.findings ?? []).length}
+                </p>
+                <h4 className="mt-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                  Тактичні моменти
+                </h4>
+                <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                  Позиції:{" "}
+                  {analysis.telemetrySummary.hasPlayerPositions ? "так" : "ні"}{" "}
+                  · Події шкоди:{" "}
+                  {analysis.telemetrySummary.hasDamageEvents ? "так" : "ні"} ·
+                  Утиліта:{" "}
+                  {analysis.telemetrySummary.hasUtilityEvents ? "так" : "ні"}
+                </p>
+                {(analysis.findings ?? []).length === 0 ? (
+                  <p className="mt-2 text-sm text-zinc-500">
+                    Жодна тактична знахідка не пройшла поточні пороги.
+                  </p>
+                ) : (
+                  <ul className="mt-3 flex flex-col gap-3 text-sm">
+                    {(analysis.findings ?? []).map((f) => (
+                      <li
+                        key={f.id}
+                        className="rounded border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900"
+                      >
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 text-zinc-800 dark:text-zinc-200">
+                          <span className="font-medium">
+                            {f.type === "FALSE_CONFIDENCE_DEATH"
+                              ? FINDING_TYPE_UK
+                              : f.type}
+                          </span>
+                          <span className="text-zinc-500">
+                            Рівень: {severityLabelUk(f.severity)}
+                          </span>
+                          <span className="text-zinc-500">
+                            Впевненість: {(f.confidence * 100).toFixed(0)}%
+                          </span>
+                        </div>
+                        <p className="mt-1 text-zinc-700 dark:text-zinc-300">
+                          <span className="font-medium">{f.playerName}</span>
+                          {" · "}
+                          Раунд {f.roundNumber ?? "—"}
+                          {" · "}
+                          {f.timeSeconds != null
+                            ? `${f.timeSeconds.toFixed(1)} с`
+                            : "час —"}
+                          {" · тик "}
+                          {f.tick}
+                          {" · "}
+                          {f.weapon ?? "зброя —"}
+                        </p>
+                        <p className="mt-1 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                          Причина
+                        </p>
+                        <p className="text-zinc-600 dark:text-zinc-400">
+                          {f.shortReason}
+                        </p>
+                        <p className="mt-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                          Докази
+                        </p>
+                        <ul className="mt-1 list-inside list-disc text-xs text-zinc-600 dark:text-zinc-400">
+                          {(f.evidence ?? []).map((line, i) => (
+                            <li key={`${f.id}-e-${i}`}>{line}</li>
+                          ))}
+                        </ul>
+                        <p className="mt-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                          Рекомендація
+                        </p>
+                        <p className="text-xs text-zinc-700 dark:text-zinc-300">
+                          {f.recommendation}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div className="rounded border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
+                <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <h3 className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                    Моменти для відео
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={exportClipsJson}
+                      disabled={
+                        !result || !analysis || result.status !== "success"
+                      }
+                      className="rounded border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
                     >
-                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-zinc-800 dark:text-zinc-200">
-                        <span className="font-medium">{f.type}</span>
-                        <span className="text-zinc-500">
-                          severity {f.severity}
-                        </span>
-                        <span className="text-zinc-500">
-                          confidence {f.confidence.toFixed(2)}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-zinc-700 dark:text-zinc-300">
-                        <span className="font-medium">{f.playerName}</span>
-                        {" · "}
-                        round {f.roundNumber ?? "—"}
-                        {" · "}
-                        {f.timeSeconds != null
-                          ? `${f.timeSeconds.toFixed(1)}s`
-                          : "time —"}
-                        {" · tick "}
-                        {f.tick}
-                        {" · "}
-                        {f.weapon ?? "weapon —"}
-                      </p>
-                      <p className="mt-1 text-zinc-600 dark:text-zinc-400">
-                        {f.shortReason}
-                      </p>
-                      <ul className="mt-2 list-inside list-disc text-xs text-zinc-600 dark:text-zinc-400">
-                        {(f.evidence ?? []).map((line, i) => (
-                          <li key={`${f.id}-e-${i}`}>{line}</li>
-                        ))}
-                      </ul>
-                      <p className="mt-2 text-xs text-zinc-700 dark:text-zinc-300">
-                        {f.recommendation}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+                      Експортувати clips.json
+                    </button>
+                    <button
+                      type="button"
+                      onClick={exportMarkdown}
+                      disabled={
+                        !result || !analysis || result.status !== "success"
+                      }
+                      className="rounded border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+                    >
+                      Експортувати звіт Markdown
+                    </button>
+                  </div>
+                </div>
+                {videoFindings.length === 0 ? (
+                  <p className="text-sm text-zinc-500">
+                    Немає кліпів для монтажу за поточним аналізом.
+                  </p>
+                ) : (
+                  <ul className="flex flex-col gap-3 text-sm">
+                    {videoFindings.map((f) => {
+                      const c = f.clip!;
+                      return (
+                        <li
+                          key={`clip-${f.id}`}
+                          className="rounded border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900"
+                        >
+                          <p className="font-medium text-zinc-900 dark:text-zinc-50">
+                            {result.fileName}
+                          </p>
+                          <p className="mt-1 text-zinc-700 dark:text-zinc-300">
+                            <span className="font-medium">Гравець:</span>{" "}
+                            {f.playerName}
+                            {" · "}
+                            <span className="font-medium">Раунд:</span>{" "}
+                            {f.roundNumber ?? "—"}
+                          </p>
+                          <p className="mt-1 text-zinc-600 dark:text-zinc-400">
+                            <span className="font-medium">Період моменту:</span>{" "}
+                            {c.clipStartLabel}–{c.clipEndLabel}
+                            {" · "}
+                            <span className="font-medium">Смерть:</span>{" "}
+                            {c.deathTimeLabel}
+                            {" · "}
+                            <span className="font-medium">
+                              Впевненість:
+                            </span>{" "}
+                            {(f.confidence * 100).toFixed(0)}%
+                          </p>
+                          <p className="mt-1 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                            Причина
+                          </p>
+                          <p className="text-xs text-zinc-700 dark:text-zinc-300">
+                            {f.shortReason}
+                          </p>
+                          <p className="mt-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                            Докази
+                          </p>
+                          <ul className="mt-1 list-inside list-disc text-xs text-zinc-600 dark:text-zinc-400">
+                            {(f.evidence ?? []).map((line, i) => (
+                              <li key={`${f.id}-clip-e-${i}`}>{line}</li>
+                            ))}
+                          </ul>
+                          <p className="mt-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                            Рекомендація
+                          </p>
+                          <p className="text-xs text-zinc-700 dark:text-zinc-300">
+                            {f.recommendation}
+                          </p>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            </>
           ) : null}
           <div>
             <h3 className="mb-2 text-sm font-medium text-zinc-800 dark:text-zinc-200">
-              Raw JSON
+              Сирі JSON-дані
             </h3>
             <pre className="max-h-[480px] overflow-auto rounded border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100">
               {JSON.stringify(result, null, 2)}

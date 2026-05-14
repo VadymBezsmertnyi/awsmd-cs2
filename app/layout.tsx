@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "CS2 AI Demo Analyzer",
-  description: "Local CS2 demo parsing and dashboard (Phase 1)",
+  title: "Аналізатор CS2 demo",
+  description: "Локальний парсинг CS2 demo та тактичний звіт",
 };
 
 type RootLayoutPropsI = {
@@ -25,7 +25,7 @@ type RootLayoutPropsI = {
 
 const rootLayout: FC<RootLayoutPropsI> = ({ children }) => (
   <html
-    lang="en"
+    lang="uk"
     className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
   >
     <body className="flex min-h-full flex-col">{children}</body>

@@ -65,7 +65,7 @@ export const applySpatialSupportHeuristic = (
     out.rawPoints += tuning.weightSpatialSupport;
     out.flags.spatialSupportGap = true;
     out.evidence.push(
-      `Victim appeared isolated from nearby teammates based on sampled positional telemetry (no samples within ~${Math.round(tuning.supportRadiusUnits)} units within ±${tuning.supportTickTolerance} ticks of death; approximate only).`
+      `За вибірковими позиціями жертва ймовірно далеко від найближчих союзників (жодного семплу в межах ~${Math.round(tuning.supportRadiusUnits)} одиниць у ±${tuning.supportTickTolerance} тиків від смерті; наближено, не LOS).`
     );
   }
 };

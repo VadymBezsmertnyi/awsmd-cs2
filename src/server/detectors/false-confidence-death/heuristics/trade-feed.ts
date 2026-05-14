@@ -24,12 +24,12 @@ export const tradeEvidenceLine = (
 ): string => {
   if (usedSeconds) {
     return label === "trade"
-      ? `No trade response detected in the kill feed within ${secondsOrTicks.toFixed(1)}s after death (not spatial coverage).`
-      : `No teammate kill appeared in the kill feed within ${secondsOrTicks.toFixed(1)}s after death (feed activity only).`;
+      ? `У kill feed не видно трейду на атакувального протягом ~${secondsOrTicks.toFixed(1)} с після смерті (не про просторове покриття).`
+      : `У kill feed не з’явилося вбивства від союзника протягом ~${secondsOrTicks.toFixed(1)} с після смерті (лише активність стрічки).`;
   }
   return label === "trade"
-    ? `No trade response detected in the kill feed within ~${Math.round(secondsOrTicks)} ticks after death (tick rate unavailable for exact seconds).`
-    : `No teammate kill appeared in the kill feed within ~${Math.round(secondsOrTicks)} ticks after death (tick rate unavailable for exact seconds).`;
+    ? `У kill feed не видно трейду на атакувального приблизно протягом ~${Math.round(secondsOrTicks)} тиків після смерті (tick rate недоступний для точних секунд).`
+    : `У kill feed не з’явилося вбивства від союзника приблизно протягом ~${Math.round(secondsOrTicks)} тиків після смерті (tick rate недоступний для точних секунд).`;
 };
 
 export const applyNoTradeHeuristic = (

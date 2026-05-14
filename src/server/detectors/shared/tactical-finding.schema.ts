@@ -22,6 +22,17 @@ export const tacticalFindingContextSchema = z.object({
   notes: z.array(z.string()).optional(),
 });
 
+export const tacticalFindingClipSchema = z.object({
+  deathTick: z.number().int(),
+  deathTimeSeconds: z.number(),
+  deathTimeLabel: z.string(),
+  clipStartSeconds: z.number(),
+  clipEndSeconds: z.number(),
+  clipStartLabel: z.string(),
+  clipEndLabel: z.string(),
+  clipDurationSeconds: z.number(),
+});
+
 export const tacticalFindingSchema = z.object({
   id: z.string(),
   type: findingTypeSchema,
@@ -40,6 +51,7 @@ export const tacticalFindingSchema = z.object({
   attackerSteamId: z.string().optional(),
   mapName: z.string().optional(),
   context: tacticalFindingContextSchema.optional(),
+  clip: tacticalFindingClipSchema.optional(),
 });
 
 export const countsBySeveritySchema = z.object({

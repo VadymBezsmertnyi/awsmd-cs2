@@ -56,7 +56,7 @@ export const applyDamageTimelineHeuristic = (
     out.rawPoints += tuning.weightShortDamageTimeline;
     out.flags.shortDamageTimeline = true;
     out.evidence.push(
-      "Damage timeline suggests a short engagement window before elimination (hurt events sampled; not reaction-time proof)."
+      "Таймлайн шкоди за вибірковими подіями player_hurt вказує на коротке вікно перед усуненням (не доказ реакції)."
     );
   }
 };

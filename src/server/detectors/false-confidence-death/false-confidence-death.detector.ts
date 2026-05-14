@@ -39,6 +39,10 @@ import {
   buildSortedRounds,
   resolveRoundContainingTick,
 } from "@/src/server/shared/demo-timeline";
+import {
+  buildClipWindow,
+  DEMO_FALLBACK_TICK_RATE,
+} from "@/src/server/shared/timecode.helpers";
 import { buildTelemetryIndexes } from "./telemetry-index";
 
 // constants
@@ -56,22 +60,22 @@ const findingId = (
 
 const buildShortReason = (f: CandidateStateT["flags"]): string => {
   if (f.spatialSupportGap && f.noTrade)
-    return "Approximate spatial isolation and kill-feed trade gap both elevated contextual risk.";
+    return "Ймовірно поєднання просторової відірваності (за вибірковою телеметрією позицій) і відсутності трейду в стрічці вбивств підвищує ризик хибної впевненості; потребує ручної перевірки у відео.";
   if (f.spatialSupportGap)
-    return "Victim appeared spatially isolated from teammates in sampled positional telemetry (approximate).";
+    return "За доступною телеметрією позицій жертва ймовірно була відносно відірвана від союзників (наближено, не LOS); потребує ручної перевірки у відео.";
   if (f.noTrade && f.earlyRound)
-    return "Death occurred early in the round with no kill-feed trade on the attacker within the scanned window.";
+    return "Смерть на початку раунду без трейду на атакувального в межах вікна kill feed; ймовірні ознаки хибної впевненості, потребує ручної перевірки у відео.";
   if (f.noTrade)
-    return "Death showed no kill-feed trade on the attacker within the scanned window.";
+    return "У стрічці вбивств не видно трейду на атакувального в обраному вікні; ймовірно підвищений контекстний ризик за доступними сигналами.";
   if (f.earlyRound)
-    return "Death occurred soon after round start by demo timing (not map-position verified).";
+    return "Смерть незабаром після старту раунду за таймінгом demo (не верифіковано позицією на мапі); потребує ручної перевірки у відео.";
   if (f.isolated && f.headshotRifle)
-    return "Fast headshot elimination with limited nearby teammate kill-feed activity.";
+    return "Швидке усунення хедшотом при обмеженій активності союзників у kill feed навколо моменту; ймовірно, не повна картина бою.";
   if (f.headshotRifle)
-    return "Fast headshot elimination from the kill feed; contextual risk only.";
+    return "Швидке усунення хедшотом за kill feed; лише контекстний сигнал, не доказ кута чи очищення позиції.";
   if (f.lowCombatCluster && f.shortDamageTimeline)
-    return "Limited nearby fight density with a short sampled damage window before elimination.";
-  return "Elevated contextual risk from sampled telemetry and kill-feed signals (heuristic).";
+    return "Обмежена щільність бою поруч і коротке вікно шкоди за вибірковими подіями; ймовірні ознаки хибної впевненості.";
+  return "Підвищений контекстний ризик за евристикою на kill feed і доступній телеметрії (наближено); потребує ручної перевірки у відео.";
 };
 
 const sameTeamKill = (
@@ -198,32 +202,52 @@ const candidateToFinding = (
   const round = resolveRoundContainingTick(kill.tick, sortedRounds);
   const timeSeconds = resolveKillTimeSeconds(kill.tick, parseResult.tickRate);
 
+  const tickRateOk =
+    typeof parseResult.tickRate === "number" &&
+    Number.isFinite(parseResult.tickRate) &&
+    parseResult.tickRate > 0;
+  const tickRateForClip: number = tickRateOk
+    ? (parseResult.tickRate as number)
+    : DEMO_FALLBACK_TICK_RATE;
+
   const notes: string[] = [
-    "Heuristic output is approximate; LOS, exact angles, and wallbang certainty are not inferred.",
+    "Евристика наближена: не стверджуємо точні кути, LOS чи wallbang — лише за доступною телеметрією.",
   ];
   if (ctx.hasPlayerPositions)
     notes.push(
-      "Positions are sparsely sampled; proximity is not visibility or trade guarantee."
+      "Позиції вибіркові; близькість у координатах не дорівнює видимості чи гарантії трейду."
     );
   if (ctx.hasDamageEvents)
-    notes.push("Damage events are incomplete relative to a full combat log.");
-  if (ctx.hasUtilityEvents)
     notes.push(
-      "Utility rows reflect detonation timing only, not coverage quality."
+      "Події шкоди неповні відносно повного бойового логу; інтерпретація обмежена."
     );
-  if (parseResult.tickRate == null || !Number.isFinite(parseResult.tickRate))
+  if (ctx.hasUtilityEvents)
+    notes.push("Гранати: лише час детонації, не якість покриття зони.");
+  if (!tickRateOk)
     notes.push(
-      "Tick rate was unavailable or unreliable; timing evidence may use tick windows instead of seconds."
+      `Tick rate у demo відсутній або ненадійний; для кліпів використано умовні ${DEMO_FALLBACK_TICK_RATE} тик/с — час у секундах наближений і потребує ручної перевірки у відео.`
     );
 
   const evidence = [...c.evidence];
-  const parts: string[] = ["kill feed", "roster"];
-  if (ctx.hasPlayerPositions) parts.push("sampled positions");
-  if (ctx.hasDamageEvents) parts.push("hurt events");
-  if (ctx.hasUtilityEvents) parts.push("utility detonations");
+  if (!tickRateOk) {
+    evidence.unshift(
+      `Точний таймінг обмежений: tick rate відсутній, для секунд застосовано умовні ${DEMO_FALLBACK_TICK_RATE} тик/с; мітки MM:SS наближені, потребує ручної перевірки у відео.`
+    );
+  }
+  const parts: string[] = ["стрічка вбивств", "ростер"];
+  if (ctx.hasPlayerPositions) parts.push("вибіркові позиції");
+  if (ctx.hasDamageEvents) parts.push("події шкоди");
+  if (ctx.hasUtilityEvents) parts.push("детонації утиліти");
   evidence.push(
-    `Inputs used (tier ${ctx.telemetryTier}): ${parts.join(", ")} (all approximate).`
+    `Вхідні дані (рівень ${ctx.telemetryTier}): ${parts.join(", ")} — усе наближено.`
   );
+
+  const clip = buildClipWindow({
+    deathTick: kill.tick,
+    tickRate: tickRateForClip,
+    preSeconds: 8,
+    postSeconds: 5,
+  });
 
   return {
     id: findingId(parseResult.fileName, kill.tick, victimName),
@@ -247,6 +271,7 @@ const candidateToFinding = (
       detectorVersion: FALSE_CONFIDENCE_DEATH_DETECTOR_VERSION,
       notes,
     },
+    clip,
   };
 };
 

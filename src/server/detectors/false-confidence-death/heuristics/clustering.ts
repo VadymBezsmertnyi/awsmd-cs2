@@ -135,13 +135,13 @@ export const applyEngagementClusterHeuristic = (
     applyRawDelta(out, tuning.clusterBusyScoreDelta);
     out.flags.busyCombatContext = true;
     out.evidence.push(
-      `Nearby combat activity appeared elevated in a sampled engagement window before/around death (heuristic index ${activity}; not a coordinated-tactics claim).`
+      "За вибірковим вікном навколо смерті ймовірно підвищена бойова активність (евристичний індекс; не про тактику «зачищення» кутів)."
     );
   } else if (activity <= tuning.clusterActivityLow) {
     out.rawPoints += tuning.weightClusterSolo;
     out.flags.lowCombatCluster = true;
     out.evidence.push(
-      "Nearby combat activity was limited during the engagement window based on kill/damage/utility samples (approximate isolation signal)."
+      "Обмежена активність бою у вікні за kill/damage/utility (наближено; можливий сигнал ізоляції, потребує ручної перевірки у відео)."
     );
   }
 };
