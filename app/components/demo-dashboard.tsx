@@ -9,6 +9,7 @@ import type {
   DemoFileT,
   ListDemosResponseT,
   NormalizedParseResultT,
+  NormalizedPlayerT,
   NormalizedRoundT,
   ParseAllDemosResponseT,
   ParseDemoResponseT,
@@ -29,6 +30,76 @@ const VIDEO_CLIP_MAX = 5;
 
 const EMPTY_VALID_MOMENTS_UK =
   "Валідних моментів для ручної перевірки не знайдено. Можливо, потрібні точніші telemetry-поля або м'якші пороги детектора.";
+
+const EMPTY_TEAM_FILTER_UK =
+  "Для вибраної сторони валідних моментів не знайдено.";
+
+type TeamFilterTabT = "all" | "T" | "CT";
+
+type PlayerTeamSideT = "T" | "CT" | "unknown";
+
+type PlayerTeamInfoT = {
+  side: PlayerTeamSideT;
+  sideLabelUk: "Терористи" | "Контртерористи" | "Невідомо";
+  teamName?: string;
+};
+
+const readOptionalTeamNameFromPlayer = (
+  p: NormalizedPlayerT
+): string | undefined => {
+  const r = p as unknown as Record<string, unknown>;
+  const candidates = [r.teamName, r.team_name, r.clanName, r.clan];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim().length > 0) return c.trim();
+  }
+  return undefined;
+};
+
+const normalizeSideFromTeamField = (
+  team: string | null | undefined
+): PlayerTeamSideT => {
+  const raw = (team ?? "").trim().toUpperCase();
+  if (raw === "T" || raw === "TERRORIST" || raw === "TERRORISTS") return "T";
+  if (raw === "CT" || raw === "COUNTERTERRORIST" || raw === "COUNTERTERRORISTS")
+    return "CT";
+  return "unknown";
+};
+
+const getPlayerTeamInfo = (
+  playerName: string,
+  players: NormalizedPlayerT[] | undefined
+): PlayerTeamInfoT => {
+  const list = players ?? [];
+  const p = list.find((x) => x.name === playerName);
+  if (!p) {
+    return { side: "unknown", sideLabelUk: "Невідомо" };
+  }
+  const side = normalizeSideFromTeamField(p.team);
+  const sideLabelUk: PlayerTeamInfoT["sideLabelUk"] =
+    side === "T" ? "Терористи" : side === "CT" ? "Контртерористи" : "Невідомо";
+  const teamName = readOptionalTeamNameFromPlayer(p);
+  return teamName != null
+    ? { side, sideLabelUk, teamName }
+    : { side, sideLabelUk };
+};
+
+const formatPlayerTeamBadgeLineUk = (info: PlayerTeamInfoT): string => {
+  const badge = info.side === "T" ? "T" : info.side === "CT" ? "CT" : "?";
+  if (info.teamName != null && info.teamName.length > 0)
+    return `${badge} · ${info.teamName} · ${info.sideLabelUk}`;
+  return `${badge} · ${info.sideLabelUk}`;
+};
+
+const filterFindingsByTeam = (
+  findings: TacticalFindingT[],
+  teamFilter: TeamFilterTabT,
+  players: NormalizedPlayerT[] | undefined
+): TacticalFindingT[] => {
+  if (teamFilter === "all") return findings;
+  return findings.filter(
+    (f) => getPlayerTeamInfo(f.playerName, players).side === teamFilter
+  );
+};
 
 const strNonEmpty = (s: string | null | undefined): s is string =>
   typeof s === "string" && s.trim().length > 0;
@@ -344,6 +415,9 @@ const tagBadgeClass = (tag: MistakeTagUiT, confidence: number): string => {
 type ReviewMomentExportRowT = {
   demoFile: string;
   playerName: string;
+  playerSide: PlayerTeamSideT;
+  playerSideLabel: PlayerTeamInfoT["sideLabelUk"];
+  playerTeamName?: string;
   roundNumber: number;
   clipStartLabel: string;
   deathTimeLabel: string;
@@ -356,14 +430,19 @@ type ReviewMomentExportRowT = {
 
 const buildReviewMomentsExport = (
   demoFile: string,
-  findings: TacticalFindingT[]
+  findings: TacticalFindingT[],
+  players: NormalizedPlayerT[] | undefined
 ): ReviewMomentExportRowT[] =>
   selectVideoReadyFindings(findings).map((f) => {
     const c = f.clip!;
     const q = f.quality!;
+    const ti = getPlayerTeamInfo(f.playerName, players);
     return {
       demoFile,
       playerName: f.playerName,
+      playerSide: ti.side,
+      playerSideLabel: ti.sideLabelUk,
+      ...(ti.teamName != null ? { playerTeamName: ti.teamName } : {}),
       roundNumber: f.roundNumber as number,
       clipStartLabel: c.clipStartLabel,
       deathTimeLabel: c.deathTimeLabel,
@@ -388,7 +467,9 @@ const triggerDownload = (fileName: string, body: string, mime: string) => {
 const buildMarkdownReportUk = (
   demoFile: string,
   analysis: AnalysisReportT,
-  findings: TacticalFindingT[]
+  findings: TacticalFindingT[],
+  players: NormalizedPlayerT[] | undefined,
+  opts?: { noFindingsNoteUk?: string }
 ): string => {
   const lines: string[] = [
     `# Звіт аналізу CS2 demo`,
@@ -402,15 +483,24 @@ const buildMarkdownReportUk = (
   ];
   const clips = selectVideoReadyFindings(findings);
   if (clips.length === 0) {
-    lines.push(`_${EMPTY_VALID_MOMENTS_UK}_`, ``);
+    if (findings.length === 0) {
+      lines.push(`_${opts?.noFindingsNoteUk ?? EMPTY_VALID_MOMENTS_UK}_`, ``);
+    } else {
+      lines.push(
+        `_Є валідні знахідки, але жодна не відповідає порогам відбору (впевненість ≥ ${(VIDEO_CLIP_MIN_CONFIDENCE * 100).toFixed(0)}%, поганий бал ≥ ${VIDEO_CLIP_MIN_BAD_SCORE}, наявність оцінки якості)._`,
+        ``
+      );
+    }
     return lines.join("\n");
   }
   for (const f of clips) {
     const c = f.clip!;
     const q = f.quality!;
     const rn = f.roundNumber as number;
+    const ti = getPlayerTeamInfo(f.playerName, players);
+    const sideToken = ti.side === "unknown" ? "?" : ti.side;
     lines.push(
-      `### ${f.playerName} — Раунд ${rn}`,
+      `### ${f.playerName} — ${sideToken} / ${ti.sideLabelUk} — Раунд ${rn}`,
       ``,
       `- Період: ${c.clipStartLabel}–${c.clipEndLabel}`,
       `- Смерть: ${c.deathTimeLabel}`,
@@ -443,6 +533,7 @@ const DemoDashboard: FC = () => {
   );
   const [expandedPlayer, setExpandedPlayer] = useState<string | null>(null);
   const [roundFilter, setRoundFilter] = useState<number | null>(null);
+  const [teamFilter, setTeamFilter] = useState<TeamFilterTabT>("all");
 
   const summary = useMemo(() => {
     if (!result) return null;
@@ -469,13 +560,34 @@ const DemoDashboard: FC = () => {
     return prepareReviewFindings(analysis.findings, result.rounds ?? []);
   }, [analysis, result]);
 
+  const rosterPlayers = useMemo((): NormalizedPlayerT[] => {
+    if (!result || result.status !== "success") return [];
+    return result.players ?? [];
+  }, [result]);
+
+  const teamTabCounts = useMemo(() => {
+    let t = 0;
+    let ct = 0;
+    for (const f of tacticalFindings) {
+      const s = getPlayerTeamInfo(f.playerName, rosterPlayers).side;
+      if (s === "T") t += 1;
+      else if (s === "CT") ct += 1;
+    }
+    return { all: tacticalFindings.length, t, ct };
+  }, [tacticalFindings, rosterPlayers]);
+
+  const filteredTacticalFindings = useMemo(
+    () => filterFindingsByTeam(tacticalFindings, teamFilter, rosterPlayers),
+    [tacticalFindings, teamFilter, rosterPlayers]
+  );
+
   const videoFindings = useMemo(() => {
-    return selectVideoReadyFindings(tacticalFindings);
-  }, [tacticalFindings]);
+    return selectVideoReadyFindings(filteredTacticalFindings);
+  }, [filteredTacticalFindings]);
 
   const playerAggs = useMemo(
-    () => aggregatePlayersFromFindings(tacticalFindings),
-    [tacticalFindings]
+    () => aggregatePlayersFromFindings(filteredTacticalFindings),
+    [filteredTacticalFindings]
   );
 
   const tacticalSummaryLine = useMemo(
@@ -485,13 +597,13 @@ const DemoDashboard: FC = () => {
 
   const findingsCountByRound = useMemo(() => {
     const m = new Map<number, number>();
-    for (const f of tacticalFindings) {
+    for (const f of filteredTacticalFindings) {
       const r = f.roundNumber;
       if (r == null || !Number.isFinite(r)) continue;
       m.set(r, (m.get(r) ?? 0) + 1);
     }
     return m;
-  }, [tacticalFindings]);
+  }, [filteredTacticalFindings]);
 
   const roundNumbersForTimeline = useMemo(() => {
     if (!result || result.status !== "success") return [];
@@ -535,6 +647,7 @@ const DemoDashboard: FC = () => {
     setAnalysis(null);
     setExpandedPlayer(null);
     setRoundFilter(null);
+    setTeamFilter("all");
     try {
       const res = await fetch("/api/demos/parse", {
         method: "POST",
@@ -586,13 +699,19 @@ const DemoDashboard: FC = () => {
       analysis.findings ?? [],
       result.rounds ?? []
     );
-    const payload = buildReviewMomentsExport(result.fileName, prepared);
+    const players = result.players ?? [];
+    const filtered = filterFindingsByTeam(prepared, teamFilter, players);
+    const payload = buildReviewMomentsExport(
+      result.fileName,
+      filtered,
+      players
+    );
     triggerDownload(
       "review-moments.json",
       JSON.stringify(payload, null, 2),
       "application/json"
     );
-  }, [result, analysis]);
+  }, [result, analysis, teamFilter]);
 
   const exportMarkdown = useCallback(() => {
     if (!result || !analysis || result.status !== "success") return;
@@ -600,14 +719,26 @@ const DemoDashboard: FC = () => {
       analysis.findings ?? [],
       result.rounds ?? []
     );
-    const md = buildMarkdownReportUk(result.fileName, analysis, prepared);
+    const players = result.players ?? [];
+    const filtered = filterFindingsByTeam(prepared, teamFilter, players);
+    const noFindingsNoteUk =
+      filtered.length === 0 && prepared.length > 0 && teamFilter !== "all"
+        ? EMPTY_TEAM_FILTER_UK
+        : undefined;
+    const md = buildMarkdownReportUk(
+      result.fileName,
+      analysis,
+      filtered,
+      players,
+      { noFindingsNoteUk }
+    );
     const base = result.fileName.replace(/\.dem$/i, "") || "report";
     triggerDownload(
       `${base}-demo-review.md`,
       md,
       "text/markdown;charset=utf-8"
     );
-  }, [result, analysis]);
+  }, [result, analysis, teamFilter]);
 
   const copyClipTimecodes = useCallback(async (f: TacticalFindingT) => {
     const text = buildClipTimecodesCopyText(f);
@@ -893,17 +1024,70 @@ const DemoDashboard: FC = () => {
                 </div>
               ) : null}
 
+              <div className="mt-3 flex flex-wrap gap-1">
+                {(
+                  [
+                    {
+                      id: "all" as const,
+                      label: "Всі",
+                      count: teamTabCounts.all,
+                    },
+                    {
+                      id: "T" as const,
+                      label: "Терористи",
+                      count: teamTabCounts.t,
+                    },
+                    {
+                      id: "CT" as const,
+                      label: "Контртерористи",
+                      count: teamTabCounts.ct,
+                    },
+                  ] as const
+                ).map((tab) => {
+                  const active = teamFilter === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => {
+                        setTeamFilter(tab.id);
+                        setExpandedPlayer(null);
+                      }}
+                      className={`rounded border px-2 py-1 text-[11px] font-medium transition-colors ${
+                        active
+                          ? "border-amber-500 bg-amber-50 text-amber-950 dark:border-amber-600 dark:bg-amber-950/40 dark:text-amber-100"
+                          : "border-zinc-200 bg-zinc-50 text-zinc-700 hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+                      }`}
+                    >
+                      {tab.label}{" "}
+                      <span className="tabular-nums text-zinc-500 dark:text-zinc-400">
+                        {tab.count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
               <h4 className="mt-3 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
                 Гравці з найбільшою кількістю ризикових смертей
               </h4>
               {playerAggs.length === 0 ? (
                 <p className="mt-1 text-[11px] leading-snug text-zinc-600 dark:text-zinc-400">
-                  {EMPTY_VALID_MOMENTS_UK}
+                  {tacticalFindings.length === 0
+                    ? EMPTY_VALID_MOMENTS_UK
+                    : teamFilter !== "all"
+                      ? EMPTY_TEAM_FILTER_UK
+                      : EMPTY_VALID_MOMENTS_UK}
                 </p>
               ) : (
                 <ul className="mt-1.5 flex flex-col gap-1.5">
                   {playerAggs.map((row) => {
                     const open = expandedPlayer === row.playerName;
+                    const teamInfo = getPlayerTeamInfo(
+                      row.playerName,
+                      rosterPlayers
+                    );
+                    const teamLine = formatPlayerTeamBadgeLineUk(teamInfo);
                     const visible = row.findings.filter(
                       (f) =>
                         roundFilter == null || f.roundNumber === roundFilter
@@ -944,6 +1128,9 @@ const DemoDashboard: FC = () => {
                               {open ? "▲" : "▼"} знахідки
                             </span>
                           </div>
+                          <div className="text-[10px] text-zinc-600 dark:text-zinc-400">
+                            {teamLine}
+                          </div>
                           <div className="text-[11px] text-zinc-600 dark:text-zinc-400">
                             {row.riskyDeaths} ризик. смертей · середнє{" "}
                             {(row.avgConfidence * 100).toFixed(0)}% · поганий
@@ -966,6 +1153,12 @@ const DemoDashboard: FC = () => {
                                 {visible.map((f) => {
                                   const c = f.clip!;
                                   const q = f.quality;
+                                  const fTeam = getPlayerTeamInfo(
+                                    f.playerName,
+                                    rosterPlayers
+                                  );
+                                  const fTeamLine =
+                                    formatPlayerTeamBadgeLineUk(fTeam);
                                   return (
                                     <li
                                       key={f.id}
@@ -976,6 +1169,9 @@ const DemoDashboard: FC = () => {
                                         <span className="text-[11px] font-medium leading-tight text-zinc-900 dark:text-zinc-100">
                                           ⚠ {findingTitleUk(f)}
                                         </span>
+                                      </div>
+                                      <div className="mt-0.5 text-[10px] text-zinc-600 dark:text-zinc-400">
+                                        {fTeamLine}
                                       </div>
                                       <div className="mt-0.5 space-y-0.5 text-[10px] text-zinc-600 dark:text-zinc-400">
                                         <div>Раунд {f.roundNumber}</div>
@@ -1073,6 +1269,10 @@ const DemoDashboard: FC = () => {
                   <p className="mt-1 text-[10px] leading-snug text-zinc-600 dark:text-zinc-400">
                     {EMPTY_VALID_MOMENTS_UK}
                   </p>
+                ) : filteredTacticalFindings.length === 0 ? (
+                  <p className="mt-1 text-[10px] leading-snug text-zinc-600 dark:text-zinc-400">
+                    {EMPTY_TEAM_FILTER_UK}
+                  </p>
                 ) : videoFindings.length === 0 ? (
                   <p className="mt-1 text-[10px] leading-snug text-zinc-600 dark:text-zinc-400">
                     Є валідні знахідки, але жодна не відповідає порогам відбору
@@ -1085,6 +1285,8 @@ const DemoDashboard: FC = () => {
                     {videoFindings.map((f) => {
                       const c = f.clip!;
                       const q = f.quality!;
+                      const ti = getPlayerTeamInfo(f.playerName, rosterPlayers);
+                      const head = `${f.playerName} · ${formatPlayerTeamBadgeLineUk(ti)} · Раунд ${f.roundNumber}`;
                       return (
                         <li
                           key={`clip-${f.id}`}
@@ -1092,9 +1294,7 @@ const DemoDashboard: FC = () => {
                         >
                           <div className="flex flex-wrap items-start justify-between gap-2">
                             <div className="min-w-0 flex-1 space-y-0.5 text-zinc-800 dark:text-zinc-200">
-                              <div className="font-semibold">
-                                {f.playerName} · Раунд {f.roundNumber}
-                              </div>
+                              <div className="font-semibold">{head}</div>
                               <div>
                                 Період: {c.clipStartLabel}–{c.clipEndLabel}
                               </div>
