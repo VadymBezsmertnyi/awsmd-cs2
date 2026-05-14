@@ -41,6 +41,12 @@ export const deriveFalseConfidenceMistakeTags = (
   return MISTAKE_TAG_ORDER.filter((t) => s.has(t));
 };
 
+export const filterMistakeTagsForQuality = (
+  tags: FalseConfidenceMistakeTagT[],
+  deathWasTraded: boolean
+): FalseConfidenceMistakeTagT[] =>
+  deathWasTraded ? tags.filter((t) => t !== "NO_TRADE_SUPPORT") : tags;
+
 const EVIDENCE_BY_TAG: Record<FalseConfidenceMistakeTagT, string> = {
   FAST_ENTRY_BEFORE_DEATH: "Ранній вихід у дуель — мало часу на підготовку.",
   NO_UTILITY_BEFORE_CONTACT: "Сухий вихід без flash/smoke перед смертю.",

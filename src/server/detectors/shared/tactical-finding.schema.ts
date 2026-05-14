@@ -43,6 +43,16 @@ export const mistakeTagSchema = z.enum([
   "HEADSHOT_PUNISH",
 ]);
 
+export const tacticalFindingQualitySchema = z.object({
+  badDeathScore: z.number(),
+  positiveImpactScore: z.number(),
+  victimTeamWonRound: z.boolean(),
+  victimKillsBeforeDeathInRound: z.number().int().nonnegative(),
+  deathWasTraded: z.boolean(),
+  isChaoticFight: z.boolean(),
+  suppressReason: z.array(z.string()).optional(),
+});
+
 export const tacticalFindingSchema = z.object({
   id: z.string(),
   type: findingTypeSchema,
@@ -64,6 +74,7 @@ export const tacticalFindingSchema = z.object({
   clip: tacticalFindingClipSchema.optional(),
   mistakeTags: z.array(mistakeTagSchema).optional(),
   verdict: z.string().optional(),
+  quality: tacticalFindingQualitySchema.optional(),
 });
 
 export const countsBySeveritySchema = z.object({

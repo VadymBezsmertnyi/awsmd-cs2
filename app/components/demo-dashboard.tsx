@@ -33,6 +33,34 @@ const SummaryCard: FC<SummaryCardPropsI> = ({ label, value }) => (
   </div>
 );
 
+const FINDINGS_FILTER_SUMMARY_UK =
+  "Показано тільки найімовірніші необережні смерті. Нормальні трейди, корисні entry-смерті та хаотичні масові перестрілки відфільтровані.";
+
+const VIDEO_CLIP_MIN_CONFIDENCE = 0.65;
+const VIDEO_CLIP_MIN_BAD_SCORE = 3;
+const VIDEO_CLIP_MAX = 5;
+
+const selectVideoReadyFindings = (
+  findings: TacticalFindingT[]
+): TacticalFindingT[] => {
+  const list = findings.filter(
+    (f) =>
+      f.type === "FALSE_CONFIDENCE_DEATH" &&
+      f.clip != null &&
+      f.quality != null &&
+      f.quality.badDeathScore >= VIDEO_CLIP_MIN_BAD_SCORE &&
+      f.confidence >= VIDEO_CLIP_MIN_CONFIDENCE
+  );
+  list.sort((a, b) => {
+    const bd =
+      (b.quality?.badDeathScore ?? 0) - (a.quality?.badDeathScore ?? 0);
+    if (bd !== 0) return bd;
+    if (b.confidence !== a.confidence) return b.confidence - a.confidence;
+    return (a.clip?.clipStartSeconds ?? 0) - (b.clip?.clipStartSeconds ?? 0);
+  });
+  return list.slice(0, VIDEO_CLIP_MAX);
+};
+
 const FINDING_TYPE_UK = "Смерть після необережного виходу";
 
 const TELEMETRY_DISCLAIMER_UK =
@@ -135,36 +163,39 @@ type ClipExportRowT = {
   recommendation: string;
   mistakeTags: string[];
   verdict: string;
+  badDeathScore: number;
+  positiveImpactScore: number;
 };
 
 const buildClipsExport = (
   demoFile: string,
   findings: TacticalFindingT[]
 ): ClipExportRowT[] =>
-  findings
-    .filter((f) => f.type === "FALSE_CONFIDENCE_DEATH" && f.clip != null)
-    .map((f) => {
-      const c = f.clip!;
-      return {
-        demoFile,
-        playerName: f.playerName,
-        roundNumber: f.roundNumber,
-        type: f.type,
-        clipStartLabel: c.clipStartLabel,
-        deathTimeLabel: c.deathTimeLabel,
-        clipEndLabel: c.clipEndLabel,
-        clipStartSeconds: c.clipStartSeconds,
-        deathTimeSeconds: c.deathTimeSeconds,
-        clipEndSeconds: c.clipEndSeconds,
-        confidence: f.confidence,
-        severity: f.severity,
-        reason: f.shortReason,
-        evidence: f.evidence ?? [],
-        recommendation: f.recommendation,
-        mistakeTags: f.mistakeTags ?? [],
-        verdict: f.verdict ?? "",
-      };
-    });
+  selectVideoReadyFindings(findings).map((f) => {
+    const c = f.clip!;
+    const q = f.quality!;
+    return {
+      demoFile,
+      playerName: f.playerName,
+      roundNumber: f.roundNumber,
+      type: f.type,
+      clipStartLabel: c.clipStartLabel,
+      deathTimeLabel: c.deathTimeLabel,
+      clipEndLabel: c.clipEndLabel,
+      clipStartSeconds: c.clipStartSeconds,
+      deathTimeSeconds: c.deathTimeSeconds,
+      clipEndSeconds: c.clipEndSeconds,
+      confidence: f.confidence,
+      severity: f.severity,
+      reason: f.shortReason,
+      evidence: f.evidence ?? [],
+      recommendation: f.recommendation,
+      mistakeTags: f.mistakeTags ?? [],
+      verdict: f.verdict ?? "",
+      badDeathScore: q.badDeathScore,
+      positiveImpactScore: q.positiveImpactScore,
+    };
+  });
 
 const triggerDownload = (fileName: string, body: string, mime: string) => {
   const blob = new Blob([body], { type: mime });
@@ -191,18 +222,19 @@ const buildMarkdownReportUk = (
     `## Моменти для відео`,
     ``,
   ];
-  const clips = findings.filter(
-    (f) => f.type === "FALSE_CONFIDENCE_DEATH" && f.clip != null
-  );
+  const clips = selectVideoReadyFindings(findings);
   if (clips.length === 0) {
     lines.push(`_Немає моментів для експорту за поточними порогами._`, ``);
     return lines.join("\n");
   }
   for (const f of clips) {
     const c = f.clip!;
+    const q = f.quality!;
     lines.push(
       `### ${f.playerName} — раунд ${f.roundNumber ?? "—"}`,
       ``,
+      `- **Оцінка поганої смерті:** ${q.badDeathScore}`,
+      `- **Корисний вплив до смерті:** ${q.positiveImpactScore}`,
       `- **Період кліпу:** ${c.clipStartLabel}–${c.clipEndLabel}`,
       `- **Смерть:** ${c.deathTimeLabel}`,
       `- **Впевненість:** ${(f.confidence * 100).toFixed(0)}%`,
@@ -264,9 +296,7 @@ const DemoDashboard: FC = () => {
 
   const videoFindings = useMemo(() => {
     if (!analysis?.findings) return [];
-    return analysis.findings.filter(
-      (f) => f.type === "FALSE_CONFIDENCE_DEATH" && f.clip != null
-    );
+    return selectVideoReadyFindings(analysis.findings);
   }, [analysis]);
 
   const loadDemos = useCallback(async (opts?: { skipLoading?: boolean }) => {
@@ -612,6 +642,9 @@ const DemoDashboard: FC = () => {
                   Тактичні моменти
                 </h4>
                 <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                  {FINDINGS_FILTER_SUMMARY_UK}
+                </p>
+                <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
                   Позиції:{" "}
                   {analysis.telemetrySummary.hasPlayerPositions ? "так" : "ні"}{" "}
                   · Події шкоди:{" "}
@@ -657,6 +690,19 @@ const DemoDashboard: FC = () => {
                             {" · "}
                             <span className="font-medium">Смерть:</span>{" "}
                             {f.clip.deathTimeLabel}
+                          </p>
+                        ) : null}
+                        {f.quality ? (
+                          <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                            <span className="font-medium">
+                              Оцінка поганої смерті:
+                            </span>{" "}
+                            {f.quality.badDeathScore}
+                            {" · "}
+                            <span className="font-medium">
+                              Корисний вплив до смерті:
+                            </span>{" "}
+                            {f.quality.positiveImpactScore}
                           </p>
                         ) : null}
                         {(f.mistakeTags?.length ?? 0) > 0 ? (
@@ -742,12 +788,15 @@ const DemoDashboard: FC = () => {
                 </p>
                 {videoFindings.length === 0 ? (
                   <p className="text-sm text-zinc-500">
-                    Немає кліпів для монтажу за поточним аналізом.
+                    Немає кліпів для експорту: потрібні впевненість ≥65%, оцінка
+                    поганої смерті ≥3 (макс. 5 моментів). Інші знахідки — у
+                    блоці «Тактичні моменти».
                   </p>
                 ) : (
                   <ul className="flex flex-col gap-3 text-sm">
                     {videoFindings.map((f) => {
                       const c = f.clip!;
+                      const q = f.quality!;
                       return (
                         <li
                           key={`clip-${f.id}`}
@@ -787,6 +836,17 @@ const DemoDashboard: FC = () => {
                             {(f.confidence * 100).toFixed(0)}%{" · "}
                             <span className="font-medium">Рівень:</span>{" "}
                             {severityLabelUk(f.severity)}
+                          </p>
+                          <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                            <span className="font-medium">
+                              Оцінка поганої смерті:
+                            </span>{" "}
+                            {q.badDeathScore}
+                            {" · "}
+                            <span className="font-medium">
+                              Корисний вплив до смерті:
+                            </span>{" "}
+                            {q.positiveImpactScore}
                           </p>
                           {(f.mistakeTags?.length ?? 0) > 0 ? (
                             <div className="mt-2 flex flex-wrap gap-1.5">
