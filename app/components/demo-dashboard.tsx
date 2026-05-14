@@ -341,7 +341,7 @@ const DemoDashboard: FC = () => {
                 ) : null}
               </div>
               <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                Findings: {analysis.findings.length}
+                Findings: {(analysis.findings ?? []).length}
               </p>
               <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
                 Positions:{" "}
@@ -351,13 +351,13 @@ const DemoDashboard: FC = () => {
                 Utility events:{" "}
                 {analysis.telemetrySummary.hasUtilityEvents ? "yes" : "no"}
               </p>
-              {analysis.findings.length === 0 ? (
+              {(analysis.findings ?? []).length === 0 ? (
                 <p className="mt-2 text-sm text-zinc-500">
                   No tactical findings matched the current thresholds.
                 </p>
               ) : (
                 <ul className="mt-3 flex flex-col gap-3 text-sm">
-                  {analysis.findings.map((f) => (
+                  {(analysis.findings ?? []).map((f) => (
                     <li
                       key={f.id}
                       className="rounded border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900"
@@ -388,7 +388,7 @@ const DemoDashboard: FC = () => {
                         {f.shortReason}
                       </p>
                       <ul className="mt-2 list-inside list-disc text-xs text-zinc-600 dark:text-zinc-400">
-                        {f.evidence.map((line, i) => (
+                        {(f.evidence ?? []).map((line, i) => (
                           <li key={`${f.id}-e-${i}`}>{line}</li>
                         ))}
                       </ul>

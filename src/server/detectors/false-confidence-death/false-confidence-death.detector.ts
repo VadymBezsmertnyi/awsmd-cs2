@@ -121,15 +121,18 @@ const runHeuristicsForKill = (
     out
   );
   applyHeadshotWeaponHeuristic(kill, tuning, out);
-  applyKillFeedIsolationHeuristic(
-    parseResult.kills,
-    killIndex,
-    victimTeam,
-    roster,
-    parseResult.tickRate,
-    tuning,
-    out
-  );
+  const skipKillFeedIsolation =
+    ctx.telemetryTier === "spatial" && ctx.hasPlayerPositions;
+  if (!skipKillFeedIsolation)
+    applyKillFeedIsolationHeuristic(
+      parseResult.kills,
+      killIndex,
+      victimTeam,
+      roster,
+      parseResult.tickRate,
+      tuning,
+      out
+    );
 
   applySpatialSupportHeuristic(
     ctx,
@@ -214,12 +217,13 @@ const candidateToFinding = (
     );
 
   const evidence = [...c.evidence];
-  const parts: string[] = [`Telemetry tier ${ctx.telemetryTier}`];
-  parts.push("kill feed", "roster");
+  const parts: string[] = ["kill feed", "roster"];
   if (ctx.hasPlayerPositions) parts.push("sampled positions");
   if (ctx.hasDamageEvents) parts.push("hurt events");
   if (ctx.hasUtilityEvents) parts.push("utility detonations");
-  evidence.push(`Inputs used: ${parts.join(", ")} (all approximate).`);
+  evidence.push(
+    `Inputs used (tier ${ctx.telemetryTier}): ${parts.join(", ")} (all approximate).`
+  );
 
   return {
     id: findingId(parseResult.fileName, kill.tick, victimName),

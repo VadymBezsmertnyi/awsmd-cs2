@@ -72,13 +72,9 @@ export const buildTelemetryIndexes = (
 
   positionSamples.sort((a, b) => a.tick - b.tick);
 
-  const damageSorted = [...parseResult.playerDamageEvents].sort(
-    (a, b) => a.tick - b.tick
-  );
-  const utilitySorted = [...parseResult.utilityEvents].sort(
-    (a, b) => a.tick - b.tick
-  );
-  const killsSorted = [...parseResult.kills].sort((a, b) => a.tick - b.tick);
+  const damageSorted = parseResult.playerDamageEvents;
+  const utilitySorted = parseResult.utilityEvents;
+  const killsSorted = parseResult.kills;
 
   return {
     positionSamples,
