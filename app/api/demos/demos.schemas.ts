@@ -38,6 +38,44 @@ export const normalizedRoundSchema = z.object({
   winner: z.string().nullable(),
 });
 
+export const normalizedPlayerPositionSampleSchema = z.object({
+  tick: z.number().int(),
+  playerName: z.string(),
+  steamId: z.string().nullable().optional(),
+  team: z.string().nullable().optional(),
+  x: z.number().nullable(),
+  y: z.number().nullable(),
+  z: z.number().nullable(),
+});
+
+export const normalizedPlayerDamageEventSchema = z.object({
+  tick: z.number().int(),
+  attackerName: z.string().nullable(),
+  victimName: z.string().nullable(),
+  weapon: z.string().nullable(),
+  damage: z.number().nullable(),
+  health: z.number().nullable(),
+  armor: z.number().nullable(),
+  hitgroup: z.number().nullable(),
+});
+
+export const normalizedUtilityTypeSchema = z.enum([
+  "FLASH",
+  "SMOKE",
+  "HE",
+  "MOLOTOV",
+  "INFERNO",
+]);
+
+export const normalizedUtilityEventSchema = z.object({
+  tick: z.number().int(),
+  playerName: z.string().nullable(),
+  utilityType: normalizedUtilityTypeSchema,
+  x: z.number().nullable().optional(),
+  y: z.number().nullable().optional(),
+  z: z.number().nullable().optional(),
+});
+
 export const parserMetaSchema = z.object({
   parser: z.string(),
   parserVersion: z.string(),
@@ -64,6 +102,9 @@ export const normalizedParseResultSchema = z.object({
   players: z.array(normalizedPlayerSchema),
   rounds: z.array(normalizedRoundSchema),
   kills: z.array(normalizedKillSchema),
+  playerPositions: z.array(normalizedPlayerPositionSampleSchema).default([]),
+  playerDamageEvents: z.array(normalizedPlayerDamageEventSchema).default([]),
+  utilityEvents: z.array(normalizedUtilityEventSchema).default([]),
   parserMeta: parserMetaSchema,
   parserWarnings: z.array(z.string()),
   parsedAt: z.string(),

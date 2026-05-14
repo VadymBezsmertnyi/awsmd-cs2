@@ -75,6 +75,9 @@ export const parseSelectedDemo = async (
       players: [],
       rounds: [],
       kills: [],
+      playerPositions: [],
+      playerDamageEvents: [],
+      utilityEvents: [],
       parserMeta: buildParserMeta(Date.now() - outerStarted, null),
       parserWarnings: [
         "Parse aborted before reading demo file (invalid file name or path)",
@@ -105,6 +108,9 @@ export const parseSelectedDemo = async (
       players: [],
       rounds: [],
       kills: [],
+      playerPositions: [],
+      playerDamageEvents: [],
+      utilityEvents: [],
       parserMeta: buildParserMeta(Date.now() - outerStarted, null),
       parserWarnings: [
         "Parse failed while reading demo bytes or running demoparser2 pipeline",

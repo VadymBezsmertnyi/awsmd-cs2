@@ -42,16 +42,23 @@ const deriveTelemetrySummary = (
   const hasRounds = parseResult.rounds.length > 0;
   const hasPlayers = parseResult.players.length > 0;
   const hasKills = parseResult.kills.length > 0;
+  const hasPlayerPositions = parseResult.playerPositions.length > 0;
+  const hasDamageEvents = parseResult.playerDamageEvents.length > 0;
+  const hasUtilityEvents = parseResult.utilityEvents.length > 0;
 
   let telemetryTier: TelemetryTierT = "kill_only";
-  if (hasKills && hasRounds && hasTickRate) telemetryTier = "limited";
-  // `full` reserved for future richer telemetry (positions, utility, etc.)
+  if (hasKills && hasRounds && hasTickRate && hasPlayerPositions)
+    telemetryTier = "spatial";
+  else if (hasKills && hasRounds && hasTickRate) telemetryTier = "limited";
 
   return {
     hasTickRate,
     hasRounds,
     hasPlayers,
     hasKills,
+    hasPlayerPositions,
+    hasDamageEvents,
+    hasUtilityEvents,
     telemetryTier,
   };
 };
@@ -65,6 +72,9 @@ const buildEmptyReport = (generatedAt: string): AnalysisReportT => ({
     hasRounds: false,
     hasPlayers: false,
     hasKills: false,
+    hasPlayerPositions: false,
+    hasDamageEvents: false,
+    hasUtilityEvents: false,
     telemetryTier: "kill_only",
   },
 });

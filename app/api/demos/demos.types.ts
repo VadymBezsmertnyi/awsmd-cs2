@@ -5,8 +5,11 @@ import {
   listDemosResponseSchema,
   normalizedKillSchema,
   normalizedParseResultSchema,
+  normalizedPlayerDamageEventSchema,
+  normalizedPlayerPositionSampleSchema,
   normalizedPlayerSchema,
   normalizedRoundSchema,
+  normalizedUtilityEventSchema,
   parseAllBatchItemSchema,
   parseAllDemosResponseSchema,
   parserMetaSchema,
@@ -21,6 +24,15 @@ export type ParseDemoRequestT = z.infer<typeof parseDemoRequestSchema>;
 export type NormalizedPlayerT = z.infer<typeof normalizedPlayerSchema>;
 export type NormalizedKillT = z.infer<typeof normalizedKillSchema>;
 export type NormalizedRoundT = z.infer<typeof normalizedRoundSchema>;
+export type NormalizedPlayerPositionSampleT = z.infer<
+  typeof normalizedPlayerPositionSampleSchema
+>;
+export type NormalizedPlayerDamageEventT = z.infer<
+  typeof normalizedPlayerDamageEventSchema
+>;
+export type NormalizedUtilityEventT = z.infer<
+  typeof normalizedUtilityEventSchema
+>;
 export type ParserMetaT = z.infer<typeof parserMetaSchema>;
 export type ParseSummaryT = z.infer<typeof parseSummarySchema>;
 export type NormalizedParseResultT = z.infer<

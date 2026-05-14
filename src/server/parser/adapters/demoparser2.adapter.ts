@@ -1,11 +1,7 @@
 import "server-only";
-import {
-  parseEvents,
-  parseHeader,
-  parsePlayerInfo,
-  parseTicks,
-} from "@laihoe/demoparser2";
+import { parseHeader, parsePlayerInfo, parseTicks } from "@laihoe/demoparser2";
 
+// types
 import type {
   NormalizedKillT,
   NormalizedParseResultT,
@@ -17,6 +13,12 @@ import type {
 // utils
 import { attachParseSummary } from "../../shared/parse-summary";
 import { getDemoparser2PackageVersion } from "../demoparser2-meta";
+import { loadGameEventRows } from "../telemetry/demoparser2-game-events";
+import {
+  normalizePlayerDamageEvents,
+  normalizeUtilityEvents,
+} from "../telemetry/normalize-extended-telemetry";
+import { samplePlayerPositions } from "../telemetry/sampled-positions";
 
 type DemoparserEventRowT = Record<string, unknown>;
 
@@ -390,6 +392,9 @@ export const parseBufferWithDemoparser2 = (
       players: [],
       rounds: [],
       kills: [],
+      playerPositions: [],
+      playerDamageEvents: [],
+      utilityEvents: [],
       parserMeta: buildParserMeta(Date.now() - started, null),
       parserWarnings,
       parsedAt,
@@ -404,23 +409,10 @@ export const parseBufferWithDemoparser2 = (
   if (mapName === null) parserWarnings.push("Header map_name missing or empty");
 
   const protocol = extractProtocol(header, parserWarnings);
-  let events: DemoparserEventRowT[] = [];
-  try {
-    const raw = parseEvents(
-      buffer,
-      ["player_death", "round_start", "round_end"],
-      ["player_name", "player_steamid", "team_num"],
-      ["total_rounds_played"]
-    );
-    events = toObjectValuesArray(raw);
-  } catch (err) {
-    parserWarnings.push(
-      `parseEvents failed: ${err instanceof Error ? err.message : String(err)}`
-    );
-  }
+  const events = loadGameEventRows(buffer, parserWarnings);
   if (events.length === 0)
     parserWarnings.push(
-      "parseEvents returned no rows; demo may be corrupted or unsupported"
+      "No game event rows after parseEvents fallbacks; demo may be corrupted or unsupported"
     );
 
   let players: NormalizedPlayerT[] = [];
@@ -453,6 +445,18 @@ export const parseBufferWithDemoparser2 = (
       "Skipped tick-rate inference (maxTick < 2); tickRate/duration left null"
     );
 
+  const playerDamageEvents = normalizePlayerDamageEvents(
+    events,
+    parserWarnings
+  );
+  const utilityEvents = normalizeUtilityEvents(events, parserWarnings);
+  const playerPositions = samplePlayerPositions(
+    buffer,
+    maxTick,
+    players,
+    parserWarnings
+  );
+
   const parseDurationMs = Date.now() - started;
 
   return attachParseSummary({
@@ -466,6 +470,9 @@ export const parseBufferWithDemoparser2 = (
     players,
     rounds,
     kills,
+    playerPositions,
+    playerDamageEvents,
+    utilityEvents,
     parserMeta: buildParserMeta(parseDurationMs, protocol),
     parserWarnings,
     parsedAt,

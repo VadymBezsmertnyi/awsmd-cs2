@@ -37,6 +37,9 @@ export const parseDemoBuffer = async (
       players: [],
       rounds: [],
       kills: [],
+      playerPositions: [],
+      playerDamageEvents: [],
+      utilityEvents: [],
       parserMeta: {
         parser: "demoparser2",
         parserVersion: getDemoparser2PackageVersion(),

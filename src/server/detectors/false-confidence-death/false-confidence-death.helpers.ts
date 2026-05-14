@@ -10,6 +10,12 @@ import type {
 import type { FalseConfidenceDeathTuningT } from "./false-confidence-death.schema";
 import type { FindingSeverityT } from "../shared/tactical-finding.types";
 
+// helpers
+import {
+  buildSortedRounds,
+  resolveRoundContainingTick,
+} from "@/src/server/shared/demo-timeline";
+
 export const defaultFalseConfidenceDeathTuning: FalseConfidenceDeathTuningT =
   falseConfidenceDeathTuningSchema.parse({});
 
@@ -57,18 +63,8 @@ export const namesMatch = (a: string | null, b: string | null): boolean => {
 export const resolveRoundForTick = (
   tick: number,
   rounds: NormalizedRoundT[]
-): NormalizedRoundT | null => {
-  if (!Number.isFinite(tick) || rounds.length === 0) return null;
-  const sorted = [...rounds].sort((a, b) => a.roundNumber - b.roundNumber);
-  for (const r of sorted) {
-    if (r.startTick == null || !Number.isFinite(r.startTick)) continue;
-    if (tick < r.startTick) continue;
-    if (r.endTick != null && Number.isFinite(r.endTick) && tick > r.endTick)
-      continue;
-    return r;
-  }
-  return null;
-};
+): NormalizedRoundT | null =>
+  resolveRoundContainingTick(tick, buildSortedRounds(rounds));
 
 export const resolveKillTimeSeconds = (
   tick: number,
@@ -229,9 +225,14 @@ export const buildRecommendation = (flags: {
 };
 
 export const tierConfidenceCap = (
-  telemetryTier: "kill_only" | "limited" | "full"
+  telemetryTier: "kill_only" | "limited" | "spatial" | "full"
 ): number => {
-  if (telemetryTier === "limited" || telemetryTier === "full") return 0.65;
+  if (
+    telemetryTier === "limited" ||
+    telemetryTier === "spatial" ||
+    telemetryTier === "full"
+  )
+    return 0.65;
   return 0.35;
 };
 

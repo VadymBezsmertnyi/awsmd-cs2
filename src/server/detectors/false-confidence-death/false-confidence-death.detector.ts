@@ -6,9 +6,16 @@ import { createHash } from "crypto";
 import type {
   NormalizedKillT,
   NormalizedParseResultT,
+  NormalizedRoundT,
 } from "@/app/api/demos/demos.types";
 import type { TacticalFindingT } from "../shared/tactical-finding.types";
 import type { FalseConfidenceDeathDetectorContextT } from "./false-confidence-death.types";
+
+// helpers
+import {
+  buildSortedRounds,
+  resolveRoundContainingTick,
+} from "@/src/server/shared/demo-timeline";
 
 // helpers
 import {
@@ -20,7 +27,6 @@ import {
   namesMatch,
   normalizeConfidence,
   resolveKillTimeSeconds,
-  resolveRoundForTick,
   resolveSeverity,
   secondsIntoRound,
   steamIdForPlayerName,
@@ -103,13 +109,14 @@ const applyNoTradeHeuristic = (
 const applyEarlyRoundHeuristic = (
   ctx: FalseConfidenceDeathDetectorContextT,
   kill: NormalizedKillT,
-  rounds: NormalizedParseResultT["rounds"],
+  sortedRounds: NormalizedRoundT[],
   tickRate: number | null | undefined,
   tuning: typeof defaultFalseConfidenceDeathTuning,
   out: CandidateT
 ): void => {
-  if (ctx.telemetryTier !== "limited") return;
-  const round = resolveRoundForTick(kill.tick, rounds);
+  if (ctx.telemetryTier !== "limited" && ctx.telemetryTier !== "spatial")
+    return;
+  const round = resolveRoundContainingTick(kill.tick, sortedRounds);
   const sec = round ? secondsIntoRound(kill.tick, round, tickRate) : null;
   if (!isEarlyRoundDeath(sec, tuning.earlyRoundSeconds)) return;
   out.rawPoints += tuning.weightEarlyRound;
@@ -185,6 +192,7 @@ const buildCandidate = (
   kill: NormalizedKillT,
   killIndex: number,
   roster: Map<string, string | null>,
+  sortedRounds: NormalizedRoundT[],
   tuning: typeof defaultFalseConfidenceDeathTuning
 ): CandidateT => {
   const out: CandidateT = {
@@ -218,7 +226,7 @@ const buildCandidate = (
   applyEarlyRoundHeuristic(
     ctx,
     kill,
-    parseResult.rounds,
+    sortedRounds,
     parseResult.tickRate,
     tuning,
     out
@@ -241,6 +249,7 @@ const candidateToFinding = (
   parseResult: NormalizedParseResultT,
   ctx: FalseConfidenceDeathDetectorContextT,
   c: CandidateT,
+  sortedRounds: NormalizedRoundT[],
   tuning: typeof defaultFalseConfidenceDeathTuning,
   tierCap: number
 ): TacticalFindingT => {
@@ -252,20 +261,30 @@ const candidateToFinding = (
     tierCap
   );
   const severity = resolveSeverity(confidence);
-  const round = resolveRoundForTick(kill.tick, parseResult.rounds);
+  const round = resolveRoundContainingTick(kill.tick, sortedRounds);
   const timeSeconds = resolveKillTimeSeconds(kill.tick, parseResult.tickRate);
 
   const notes: string[] = [
-    "Limited telemetry prevents positional verification.",
+    "Limited telemetry prevents LOS, angles, or map-geometry verification.",
   ];
+  if (ctx.hasPlayerPositions)
+    notes.push(
+      "Sampled world positions are present in the parse output; this detector version does not analyze distance or exposure from them."
+    );
   if (parseResult.tickRate == null || !Number.isFinite(parseResult.tickRate))
     notes.push(
       "Tick rate was unavailable or unreliable; timing evidence may use tick windows instead of seconds."
     );
 
   const evidence = [...c.evidence];
+  const feedParts = ["kill feed", "roster"];
+  if (ctx.hasDamageEvents) feedParts.push("damage events present (unused)");
+  if (ctx.hasUtilityEvents)
+    feedParts.push("utility detonations present (unused)");
+  if (ctx.hasPlayerPositions)
+    feedParts.push("sampled positions present (unused)");
   evidence.push(
-    `Telemetry tier ${ctx.telemetryTier}; analysis uses kill feed and roster data only.`
+    `Telemetry tier ${ctx.telemetryTier}; inputs: ${feedParts.join(", ")}.`
   );
 
   return {
@@ -304,9 +323,6 @@ const sameTeamKill = (
   return kt === vt;
 };
 
-/**
- * False Confidence Death — MVP heuristics from kill feed + roster + round/tick timing only.
- */
 export const runFalseConfidenceDeathDetector = (
   parseResult: NormalizedParseResultT,
   ctx: FalseConfidenceDeathDetectorContextT
@@ -317,6 +333,7 @@ export const runFalseConfidenceDeathDetector = (
   const tuning = defaultFalseConfidenceDeathTuning;
   const roster = buildRosterTeamByLowerName(parseResult.players);
   const tierCap = tierConfidenceCap(ctx.telemetryTier);
+  const sortedRounds = buildSortedRounds(parseResult.rounds);
 
   const candidates: CandidateT[] = [];
   const kills = parseResult.kills;
@@ -328,7 +345,15 @@ export const runFalseConfidenceDeathDetector = (
     if (namesMatch(kill.killerName, kill.victimName)) continue;
     if (sameTeamKill(kill, roster)) continue;
 
-    const cand = buildCandidate(parseResult, ctx, kill, i, roster, tuning);
+    const cand = buildCandidate(
+      parseResult,
+      ctx,
+      kill,
+      i,
+      roster,
+      sortedRounds,
+      tuning
+    );
     if (cand.rawPoints < tuning.emitMinRawPoints) continue;
     candidates.push(cand);
   }
@@ -337,6 +362,6 @@ export const runFalseConfidenceDeathDetector = (
   const sliced = candidates.slice(0, tuning.maxFindingsPerDemo);
 
   return sliced.map((c) =>
-    candidateToFinding(parseResult, ctx, c, tuning, tierCap)
+    candidateToFinding(parseResult, ctx, c, sortedRounds, tuning, tierCap)
   );
 };

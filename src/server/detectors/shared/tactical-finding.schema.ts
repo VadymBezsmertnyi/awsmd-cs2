@@ -9,7 +9,12 @@ export const findingSeveritySchema = z.enum([
 
 export const findingTypeSchema = z.enum(["FALSE_CONFIDENCE_DEATH"]);
 
-export const telemetryTierSchema = z.enum(["kill_only", "limited", "full"]);
+export const telemetryTierSchema = z.enum([
+  "kill_only",
+  "limited",
+  "spatial",
+  "full",
+]);
 
 export const tacticalFindingContextSchema = z.object({
   telemetryTier: telemetryTierSchema,
@@ -49,6 +54,9 @@ export const telemetrySummarySchema = z.object({
   hasRounds: z.boolean(),
   hasPlayers: z.boolean(),
   hasKills: z.boolean(),
+  hasPlayerPositions: z.boolean(),
+  hasDamageEvents: z.boolean(),
+  hasUtilityEvents: z.boolean(),
   telemetryTier: telemetryTierSchema,
 });
 

@@ -315,6 +315,14 @@ const DemoDashboard: FC = () => {
               <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
                 Findings: {analysis.findings.length}
               </p>
+              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                Positions:{" "}
+                {analysis.telemetrySummary.hasPlayerPositions ? "yes" : "no"} ·
+                Damage events:{" "}
+                {analysis.telemetrySummary.hasDamageEvents ? "yes" : "no"} ·
+                Utility events:{" "}
+                {analysis.telemetrySummary.hasUtilityEvents ? "yes" : "no"}
+              </p>
               {analysis.findings.length === 0 ? (
                 <p className="mt-2 text-sm text-zinc-500">
                   No tactical findings matched the current thresholds.
